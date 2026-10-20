@@ -12,11 +12,13 @@ type Screen = { s: 'home' } | { s: 'workout' } | { s: 'send'; ids: string[] } | 
 // ---------- Dźwięk końca przerwy (Web Audio, planowany z wyprzedzeniem – dokładny co do sekundy przy włączonym ekranie)
 let audio: AudioContext | null = null;
 let pending: OscillatorNode[] = [];
+let vibrateTimer = 0;
 function unlockAudio() {
   try { audio ??= new AudioContext(); if (audio.state === 'suspended') audio.resume(); } catch { /* brak dźwięku */ }
 }
 function scheduleBeep(inSec: number) {
   cancelBeep();
+  if ('vibrate' in navigator) vibrateTimer = window.setTimeout(() => { try { navigator.vibrate([350, 150, 350]); } catch { /* brak wibracji */ } }, Math.max(0, inSec) * 1000);
   if (!audio) return;
   for (const [off, f] of [[0, 880], [0.25, 880], [0.5, 1320]] as const) {
     const o = audio.createOscillator(), g = audio.createGain();
@@ -27,7 +29,7 @@ function scheduleBeep(inSec: number) {
     pending.push(o);
   }
 }
-function cancelBeep() { for (const o of pending) { try { o.stop(); } catch { /* już zagrał */ } } pending = []; }
+function cancelBeep() { clearTimeout(vibrateTimer); for (const o of pending) { try { o.stop(); } catch { /* już zagrał */ } } pending = []; }
 
 function useNow(active: boolean, ms = 1000) {
   const [now, setNow] = useState(Date.now());
@@ -81,6 +83,29 @@ export function PhoneApp() {
 
 type P = { st: PhoneState; update: (fn: (s: PhoneState) => PhoneState) => void; go: (s: Screen) => void };
 
+// ====================================================================== Instalacja
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+let deferredPrompt: any = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; window.dispatchEvent(new Event('atlas-installable')); });
+
+function InstallBanner() {
+  const [canPrompt, setCanPrompt] = useState(!!deferredPrompt);
+  useEffect(() => { const on = () => setCanPrompt(true); window.addEventListener('atlas-installable', on); return () => window.removeEventListener('atlas-installable', on); }, []);
+  if (IS_ANDROID) return (
+    <div className="p-banner">
+      <b>Zainstaluj aplikację na telefonie.</b> Dopiero wtedy działa bez internetu i ma własną ikonę.
+      {canPrompt
+        ? <div style={{ marginTop: 8 }}><button className="p-btn primary sm" onClick={async () => { try { await deferredPrompt.prompt(); } catch { /* odrzucone */ } deferredPrompt = null; setCanPrompt(false); }}>Zainstaluj</button></div>
+        : <> W <b>Chrome</b> stuknij menu <b>⋮</b> (prawy górny róg) → <b>Zainstaluj aplikację</b> albo <b>Dodaj do ekranu głównego</b>. Używaj Chrome, nie przeglądarki Xiaomi.</>}
+    </div>
+  );
+  return (
+    <div className="p-banner">
+      <b>Zainstaluj aplikację na ekranie początkowym.</b> W <b>Safari</b> stuknij <b>Udostępnij</b> (kwadrat ze strzałką) → <b>Do ekranu początkowego</b>. Dopiero wtedy działa bez internetu, a dane nie znikną przy czyszczeniu Safari.
+    </div>
+  );
+}
+
 // ====================================================================== Ekran główny
 function Home({ st, update, go, standalone }: P & { standalone: boolean }) {
   const now = useNow(!!st.active, 10_000);
@@ -98,11 +123,7 @@ function Home({ st, update, go, standalone }: P & { standalone: boolean }) {
         <button className="p-icon" onClick={() => go({ s: 'settings' })} aria-label="Ustawienia">⚙</button>
       </header>
       <main className="p-main">
-        {!standalone && (
-          <div className="p-banner">
-            <b>Zainstaluj aplikację na ekranie początkowym.</b> Stuknij <b>Udostępnij</b> (kwadrat ze strzałką) → <b>Do ekranu początkowego</b>. Dopiero wtedy działa bez internetu, a dane nie znikną przy czyszczeniu Safari.
-          </div>
-        )}
+        {!standalone && <InstallBanner />}
         {st.active ? (
           <button className="p-card p-live" onClick={() => go({ s: 'workout' })}>
             <span className="p-eyebrow">Trening w toku</span>
@@ -554,9 +575,11 @@ function SettingsScreen({ st, update, go }: P) {
           <div className="p-chips">{[60, 90, 120, 150, 180, 240].map(v => <button key={v} className={`p-chip big ${s.defaultRest === v ? 'on' : ''}`} onClick={() => set({ defaultRest: v })}>{fmtClock(v)}</button>)}</div>
         </section>
         <section className="p-sec">
-          <h2>Dźwięk końca przerwy</h2>
+          <h2>{IS_ANDROID ? 'Dźwięk i wibracja na koniec przerwy' : 'Dźwięk końca przerwy'}</h2>
           <div className="p-chips"><button className={`p-chip big ${s.sound ? 'on' : ''}`} onClick={() => { unlockAudio(); set({ sound: true }); scheduleBeep(0.1); }}>Włączony</button><button className={`p-chip big ${!s.sound ? 'on' : ''}`} onClick={() => set({ sound: false })}>Wyłączony</button></div>
-          <p className="p-note">Dźwięk gra tylko przy włączonym ekranie i otwartej aplikacji (ograniczenie iOS). W trakcie treningu aplikacja nie pozwala ekranowi zgasnąć. Wyciszenie telefonu przełącznikiem z boku też wycisza dźwięk.</p>
+          <p className="p-note">{IS_ANDROID
+            ? 'Sygnał działa przy włączonym ekranie i otwartej aplikacji. W trakcie treningu aplikacja nie pozwala ekranowi zgasnąć. Jeśli telefon Xiaomi zamyka aplikację w tle: Ustawienia → Aplikacje → Chrome → Oszczędzanie baterii → Bez ograniczeń.'
+            : 'Dźwięk gra tylko przy włączonym ekranie i otwartej aplikacji (ograniczenie iOS; iPhone nie pozwala też stronom na wibrację). W trakcie treningu aplikacja nie pozwala ekranowi zgasnąć. Wyciszenie telefonu przełącznikiem z boku też wycisza dźwięk.'}</p>
         </section>
         <section className="p-sec">
           <h2>Dane w telefonie</h2>

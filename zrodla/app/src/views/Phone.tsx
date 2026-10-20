@@ -123,20 +123,25 @@ function ImportPreview({ r, onClose }: { r: Received; onClose: () => void }) {
   const knownCustom = new Set(db.customExercises.map(c => c.id));
   const newCustom = r.bundle.custom.filter(c => !knownCustom.has(c.id) && !lookup(c.id));
   const fresh = r.bundle.workouts.filter(w => !existing.has(w.id));
+  // Docelowy profil: ten, z którego telefon odebrał plany (po nazwie), inaczej aktywny.
+  const fromPhone = r.bundle.profile ?? null;
+  const matched = fromPhone ? db.profiles.find(p => p.name.trim().toLowerCase() === fromPhone.trim().toLowerCase()) : undefined;
+  const [targetId, setTargetId] = useState(matched?.id ?? profile!.id);
+  const target = db.profiles.find(p => p.id === targetId) ?? profile!;
 
   const doImport = () => {
     update(d => {
       for (const c of newCustom) d.customExercises.push({ id: c.id, name: c.name, nameEn: '', equipmentPl: c.eq || 'inne', countsForVolume: c.vol, muscles: {}, notes: 'Dodane na telefonie – ustaw mięśnie.' });
       for (const w of fresh) {
         const nw: Workout = {
-          id: w.id, profileId: profile!.id, date: w.date, startTime: w.startTime, durationMin: w.durationMin, name: w.name, notes: w.notes,
+          id: w.id, profileId: target.id, date: w.date, startTime: w.startTime, durationMin: w.durationMin, name: w.name, notes: w.notes,
           source: 'import', createdAt: new Date().toISOString(),
           exercises: w.exercises.map(e => ({ id: uid(), exerciseId: e.exerciseId, notes: e.notes, sets: e.sets.map(s => ({ id: uid(), ...s })) })),
         };
         d.workouts.push(nw);
       }
     });
-    setResult(`Zaimportowano ${fresh.length} ${fresh.length === 1 ? 'trening' : 'treningów'} do profilu ${profile!.name}.` + (newCustom.length ? ` Dodano ${newCustom.length} nowych ćwiczeń z telefonu – ustaw im mięśnie w zakładce „Ćwiczenia”, inaczej nie będą liczone na mapie.` : ''));
+    setResult(`Zaimportowano ${fresh.length} ${fresh.length === 1 ? 'trening' : 'treningów'} do profilu ${target.name}.` + (newCustom.length ? ` Dodano ${newCustom.length} nowych ćwiczeń z telefonu – ustaw im mięśnie w zakładce „Ćwiczenia”, inaczej nie będą liczone na mapie.` : ''));
   };
 
   return (
@@ -156,11 +161,23 @@ function ImportPreview({ r, onClose }: { r: Received; onClose: () => void }) {
           ))}
         </tbody>
       </table>
+      {!result && fresh.length > 0 && (
+        <div className="row" style={{ alignItems: 'center' }}>
+          <label className="field" style={{ minWidth: 220 }}>Importuj do profilu
+            <select id="import-profile" value={target.id} onChange={e => setTargetId(e.target.value)}>
+              {db.profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+          {fromPhone && (matched
+            ? <span className="note">Telefon jest powiązany z profilem „{fromPhone}”{matched.id !== profile!.id ? ' – wybrano go automatycznie, choć aktywny jest inny profil.' : '.'}</span>
+            : <span className="note" style={{ color: 'var(--hot)' }}>Telefon odebrał plany z profilu „{fromPhone}”, którego nie ma na tym komputerze. Sprawdź, czy to na pewno Twoje treningi.</span>)}
+        </div>
+      )}
       {result ? <p style={{ color: 'var(--ok)', margin: 0 }}>{result}</p> : (
-        <p className="note">{fresh.length ? `Treningi trafią do profilu „${profile!.name}”.` : 'Wszystkie te treningi są już w aplikacji – nic nie zostanie zdublowane.'}</p>
+        <p className="note">{fresh.length ? `Treningi trafią do profilu „${target.name}”.` : 'Wszystkie te treningi są już w aplikacji – nic nie zostanie zdublowane.'}</p>
       )}
       <div className="row">
-        {!result && fresh.length > 0 && <button className="btn primary" onClick={doImport}>Importuj {fresh.length} do profilu {profile!.name}</button>}
+        {!result && fresh.length > 0 && <button className="btn primary" onClick={doImport}>Importuj {fresh.length} do profilu {target.name}</button>}
         <button className="btn" onClick={onClose}>{result ? 'Gotowe' : 'Anuluj'}</button>
       </div>
     </div>

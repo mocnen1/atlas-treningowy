@@ -28,13 +28,14 @@ app.whenReady().then(async () => {
       await click('Gotowe'); await sleep(400); await shot('p12-plany-na-ekranie');
       if (report.state.plans.length) { await click(report.state.plans[0].name); await sleep(600); await shot('p13-trening-z-planu'); }
     } else {
+      if (!(await js(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Pusty trening')`))) { await click('Zakończ'); await sleep(300); await click('Odrzuć trening'); await sleep(500); }
       await click('Pusty trening'); await sleep(500);
       await click('+ Dodaj ćwiczenie'); await sleep(300); await type('.p-search', 'przysiad ze sztang'); await sleep(300);
       await js(`document.querySelector('.p-pick').click()`); await sleep(400);
       await click('+ Dodaj ćwiczenie'); await sleep(300); await type('.p-search', 'wyciskanie sztangi na ławce płaskiej'); await sleep(300);
       await js(`document.querySelector('.p-pick').click()`); await sleep(400);
       await click('+ Dodaj ćwiczenie'); await sleep(300); await type('.p-search', 'Wiosłowanie Hammer'); await sleep(300); await shot('p02-wlasne-cwiczenie');
-      await click('+ Dodaj własne'); await sleep(400);
+      await click('+ Dodaj własne').catch(() => js(`document.querySelector('.p-pick').click()`)); await sleep(400);
       // ciężary: wpis przez stuknięcie w wartość, plus przyciski
       await js(`(() => { const s = document.querySelectorAll('.p-ex')[0].querySelector('.p-step span'); s.click(); })()`); await sleep(200);
       await js(`(() => { const i = document.querySelector('.p-step input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '102,5'); i.dispatchEvent(new Event('input', { bubbles: true })); i.blur(); })()`); await sleep(300);

@@ -98,7 +98,7 @@ export function toTransfer(w: PWorkout): TransferWorkout {
 export function phoneBundle(s: PhoneState, ws: PWorkout[]): PhoneBundle {
   const used = new Set(ws.flatMap(w => w.exercises.map(e => e.exerciseId)));
   return {
-    k: 'workouts', v: 1, sentAt: new Date().toISOString(), workouts: ws.map(toTransfer),
+    k: 'workouts', v: 1, sentAt: new Date().toISOString(), workouts: ws.map(toTransfer), profile: s.profile,
     custom: s.custom.filter(c => used.has(c.id)).map(({ id, name, eq, vol, top }) => ({ id, name, eq, vol, top })),
   };
 }

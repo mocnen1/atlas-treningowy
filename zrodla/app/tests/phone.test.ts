@@ -31,3 +31,11 @@ test('telefon: do komputera idą tylko odhaczone serie, z oceną trudności', ()
   assert.equal(t.exercises[0].sets[0].rpe, 9);
   assert.equal(t.durationMin, 60);
 });
+
+import { phoneBundle } from '../src/phone/state';
+test('telefon: paczka z treningiem niesie nazwę profilu z komputera', () => {
+  let s = applyPcBundle(emptyState(), { k: 'plans', v: 1, sentAt: 'x', profile: 'Ania', plans: [], custom: [], last: {} });
+  s = { ...s, history: [w('a', Date.now(), 8)] };
+  assert.equal(phoneBundle(s, s.history).profile, 'Ania');
+  assert.equal(phoneBundle(emptyState(), []).profile, null);
+});

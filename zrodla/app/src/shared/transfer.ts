@@ -22,7 +22,11 @@ export interface TransferWorkout {
   id: string; date: string; startTime: string | null; durationMin: number | null; name: string; notes: string;
   exercises: { exerciseId: string; notes: string; sets: TransferSet[] }[];
 }
-export interface PhoneBundle { k: 'workouts'; v: number; sentAt: string; workouts: TransferWorkout[]; custom: TransferCustom[] }
+export interface PhoneBundle {
+  k: 'workouts'; v: number; sentAt: string; workouts: TransferWorkout[]; custom: TransferCustom[];
+  /** Nazwa profilu z komputera, z którego telefon ostatnio odebrał plany (brak w starszych wersjach) */
+  profile?: string | null;
+}
 
 /** Plan treningowy przesyłany na telefon. */
 export interface TransferPlanExercise { exerciseId: string; sets: number; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string }

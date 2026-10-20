@@ -5,7 +5,7 @@ from PIL import Image, ImageFilter
 pattern, out, qr_h = sys.argv[1], sys.argv[2], int(sys.argv[3])
 mode = sys.argv[4] if len(sys.argv) > 4 else 'phone'   # phone: telefon przed kamerką; screen: ekran laptopa przed aparatem telefonu
 frames = sorted(glob.glob(pattern)); rng = np.random.default_rng(3)
-W, H, FPS, HOLD, LOOPS = 1280, 720, 10, 7, 3
+W, H, FPS, HOLD, LOOPS = 1280, 720, 10, 7, int(__import__("os").environ.get("LOOPS", "10"))
 def compose(qr, t):
     q = Image.open(qr).convert('RGB')
     bg = Image.new('RGB', (W, H), (78, 70, 62) if mode == 'phone' else (40, 42, 45))

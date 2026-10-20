@@ -1,7 +1,7 @@
 # Atlas Treningowy – kod źródłowy
 
 Dziennik treningowy z modelem 3D mięśni: aplikacja na Windows (Electron) i aplikacja na iPhone'a (PWA, ten sam kod React).
-Wersja 0.4.1.
+Wersja 0.5.0.
 
 ## Struktura
 
@@ -24,7 +24,7 @@ Wymagane: Node.js 22.
 ```bash
 cd app
 npm ci                      # zależności
-npm test                    # testy (powinno być 16/16)
+npm test                    # testy (powinno być 17/17)
 npm run build               # aplikacja na Windows → app/dist/index.html
 npm run build:phone         # aplikacja na telefon → app/dist-phone/ (zawartość wgrywana do katalogu głównego repozytorium)
 
