@@ -4,7 +4,7 @@ import { todayIso, uid, type Workout, type WorkoutSet } from '../store/types';
 import { isWorkingSet, workoutLoad, workoutSummary } from '../lib/stats';
 import { shortName } from '../data/catalog';
 import { BodyViewer } from '../three/BodyViewer';
-import { ConfirmButton, fmtDate, fmtDur, fmtKg, fmtNum, rampColor } from '../ui/common';
+import { ConfirmButton, EffortSelect, fmtDate, fmtDur, fmtKg, fmtNum, rampColor } from '../ui/common';
 import { ExercisePicker } from './ExercisePicker';
 import { newWorkout } from './Workouts';
 
@@ -133,7 +133,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table className="sets">
-                    <thead><tr><th>Seria</th><th>Rozgrz.</th><th>Ciężar kg</th><th>Powt.</th><th>Czas s</th><th>Przerwa s</th><th>RPE</th><th>Poprzednio</th><th /></tr></thead>
+                    <thead><tr><th>Seria</th><th>Rozgrz.</th><th>Ciężar kg</th><th>Powt.</th><th>Czas s</th><th>Przerwa s</th><th title="Ile powtórzeń zostało w zapasie: 100% = upadek">Trudność</th><th>Poprzednio</th><th /></tr></thead>
                     <tbody>
                       {we.sets.map((s, si) => {
                         const ps = prev[si];
@@ -147,7 +147,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
                             <td><NumCell id={`${base}-r`} label="Powtórzenia" value={s.reps} onChange={v => upd(x => { x.reps = v == null ? null : Math.round(v); })} /></td>
                             <td><NumCell id={`${base}-t`} label="Czas serii w sekundach" value={s.durationSec} onChange={v => upd(x => { x.durationSec = v == null ? null : Math.round(v); })} /></td>
                             <td><NumCell id={`${base}-p`} label="Przerwa po serii w sekundach" value={s.restSec} onChange={v => upd(x => { x.restSec = v == null ? null : Math.round(v); })} /></td>
-                            <td><NumCell id={`${base}-rpe`} label="RPE 1–10" max={10} value={s.rpe} onChange={v => upd(x => { x.rpe = v; })} /></td>
+                            <td>{s.warmup ? <span className="muted">–</span> : <EffortSelect id={`${base}-rpe`} value={s.rpe} onChange={v => upd(x => { x.rpe = v; })} />}</td>
                             <td className="prev">{ps ? `${ps.weightKg != null ? fmtNum(ps.weightKg) + ' kg × ' : ''}${ps.reps ?? '–'}` : '–'}</td>
                             <td><button className="btn ghost small" onClick={() => setEx(e => { e.sets = e.sets.filter(y => y.id !== s.id); })} aria-label="Usuń serię">✕</button></td>
                           </tr>
@@ -165,7 +165,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
           })}
 
           <button className="btn primary" style={{ justifySelf: 'start' }} onClick={() => setPicker(true)}>+ Dodaj ćwiczenie</button>
-          <p className="note">„Rozgrz.” oznacza serię rozgrzewkową: zapisuje się, ale nie liczy do objętości. Przy ćwiczeniach na czas (deska, zwis) wpisz „Czas s” zamiast powtórzeń. „Przerwa s” to odpoczynek po danej serii.</p>
+          <p className="note">„Trudność” to ile powtórzeń zostało w zapasie (100% = upadek, 80% = jeszcze 2 powtórzenia). Z tych ocen trener będzie dobierał ciężar – wystarczy ocenić ostatnią serię ćwiczenia. „Rozgrz.” oznacza serię rozgrzewkową: zapisuje się, ale nie liczy do objętości. Przy ćwiczeniach na czas (deska, zwis) wpisz „Czas s” zamiast powtórzeń. „Przerwa s” to odpoczynek po danej serii.</p>
         </div>
 
         <aside className="sticky">

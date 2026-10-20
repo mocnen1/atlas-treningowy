@@ -23,6 +23,8 @@ export interface PhoneState {
   /** Własne ćwiczenia: z komputera albo dodane na telefonie (local = jeszcze nieznane komputerowi) */
   custom: (TransferCustom & { local?: boolean })[];
   last: Record<string, TransferLast>;
+  /** Treningi z oceną trudności wg komputera (stan z chwili odbioru planów) */
+  rated: Record<string, number>;
   active: PWorkout | null;
   rest: Rest | null;
   history: PWorkout[];
@@ -31,7 +33,7 @@ export interface PhoneState {
 
 const KEY = 'atlas-phone-v1';
 export const emptyState = (): PhoneState => ({
-  v: 1, profile: null, receivedAt: null, plans: [], custom: [], last: {}, active: null, rest: null, history: [],
+  v: 1, profile: null, receivedAt: null, plans: [], custom: [], last: {}, rated: {}, active: null, rest: null, history: [],
   settings: { kgStep: 2.5, defaultRest: 120, sound: true },
 });
 
@@ -107,7 +109,7 @@ export function applyPcBundle(s: PhoneState, b: PcBundle): PhoneState {
   const last = { ...s.last };
   for (const [id, v] of Object.entries(b.last)) if (!last[id] || last[id][0] <= v[0]) last[id] = v;
   return {
-    ...s, profile: b.profile, receivedAt: b.sentAt, plans: b.plans, last,
+    ...s, profile: b.profile, receivedAt: b.sentAt, plans: b.plans, last, rated: b.rated ?? s.rated,
     custom: [...b.custom, ...s.custom.filter(c => c.local && !fromPc.has(c.id))],
   };
 }
@@ -135,3 +137,10 @@ export const fmtKg = (n: number | null) => (n == null ? '–' : n.toLocaleString
 export const fmtDay = (iso: string) => { const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso); return d.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' }); };
 export const fmtDateTime = (ms: number) => new Date(ms).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 export const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l');
+
+/** Treningi z oceną trudności dla ćwiczenia: stan z komputera + treningi zrobione na telefonie po ostatnim odbiorze planów. */
+export function ratedCount(s: PhoneState, exerciseId: string): number {
+  const since = s.receivedAt ? Date.parse(s.receivedAt) : 0;
+  const local = s.history.filter(w => (w.endedAt ?? 0) > since && w.exercises.some(e => e.exerciseId === exerciseId && e.sets.some(x => x.doneAt && !x.warmup && x.rpe != null))).length;
+  return (s.rated[exerciseId] ?? 0) + local;
+}

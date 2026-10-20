@@ -30,7 +30,11 @@ export interface TransferPlan { id: string; name: string; exercises: TransferPla
 export interface TransferCustom { id: string; name: string; eq: string; vol: boolean; top: string | null }
 /** Ostatni wynik ćwiczenia: data, ciężar i powtórzenia najlepszej serii roboczej */
 export type TransferLast = [date: string, kg: number | null, reps: number | null];
-export interface PcBundle { k: 'plans'; v: number; sentAt: string; profile: string; plans: TransferPlan[]; custom: TransferCustom[]; last: Record<string, TransferLast> }
+export interface PcBundle {
+  k: 'plans'; v: number; sentAt: string; profile: string; plans: TransferPlan[]; custom: TransferCustom[]; last: Record<string, TransferLast>;
+  /** Liczba treningów z oceną trudności na ćwiczenie (gotowość trenera); brak w starszych wersjach */
+  rated?: Record<string, number>;
+}
 
 export type Bundle = PhoneBundle | PcBundle;
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { EQUIPMENT, MUSCLES, shortName, type Exercise, type MuscleId } from '../data/catalog';
 import { cssVar } from '../three/BodyViewer';
 import type { TargetState } from '../lib/stats';
+import { EFFORT_LEVELS, effortLevel } from '../shared/effort';
 
 // ---------- Kolory
 function mix(a: string, b: string, t: number) {
@@ -167,3 +168,16 @@ export function MuscleBars(p: { weights: Record<MuscleId, number>; onClick?: (m:
     </div>
   );
 }
+
+/** Wybór trudności serii (komputer): te same poziomy co na telefonie. */
+export function EffortSelect(p: { value: number | null; onChange: (rpe: number | null) => void; id: string }) {
+  const lvl = effortLevel(p.value);
+  return (
+    <select id={p.id} className="effort-sel" value={lvl ? String(lvl.rpe) : ''} onChange={e => p.onChange(e.target.value ? Number(e.target.value) : null)}
+      aria-label="Trudność serii" title={lvl?.label ?? 'Bez oceny'} style={lvl ? { ['--c' as any]: effortColor(lvl.rpe) } : undefined}>
+      <option value="">–</option>
+      {EFFORT_LEVELS.map(l => <option key={l.rpe} value={l.rpe}>{l.pct}% · {l.short}</option>)}
+    </select>
+  );
+}
+export const effortColor = (rpe: number) => (rpe >= 10 ? cssVar('--hot') : mix(cssVar('--none'), cssVar('--accent'), Math.max(0, Math.min(1, (rpe - 5) / 4))));

@@ -110,3 +110,20 @@ export function workoutSummary(w: Workout, lookup: ExerciseLookup) {
 export function mergeWeights(base: Weights, override?: Weights): Weights {
   return override ? { ...override } : base;
 }
+
+/** Na ćwiczenie: w ilu treningach co najmniej jedna seria robocza ma ocenę trudności (RPE). Podstawa gotowości trenera. */
+export function ratedSessionCounts(workouts: Workout[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const w of workouts) {
+    const seen = new Set<string>();
+    for (const e of w.exercises) if (!seen.has(e.exerciseId) && e.sets.some(s => isWorkingSet(s) && s.rpe != null)) seen.add(e.exerciseId);
+    for (const id of seen) out[id] = (out[id] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** Trudność treningu dla ćwiczenia: najwyższa ocena wśród serii roboczych (zwykle ostatnia seria). */
+export function sessionEffort(sets: WorkoutSet[]): number | null {
+  const r = sets.filter(s => isWorkingSet(s) && s.rpe != null).map(s => s.rpe!);
+  return r.length ? Math.max(...r) : null;
+}

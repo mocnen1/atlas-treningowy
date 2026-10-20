@@ -81,3 +81,25 @@ test('wczytywanie danych uzupełnia brakujące pola i odrzuca obce pliki', () =>
   assert.throws(() => normalizeDb({ foo: 1 }));
   assert.throws(() => normalizeDb(null));
 });
+
+import { ratedSessionCounts, sessionEffort } from '../src/lib/stats';
+import { effortLevel, effortPct } from '../src/shared/effort';
+
+test('skala trudności: RPE ↔ procent i poziom', () => {
+  assert.equal(effortPct(10), 100); assert.equal(effortPct(8), 80); assert.equal(effortPct(3), 50); assert.equal(effortPct(null), null);
+  assert.equal(effortLevel(8.5)!.rpe, 8);
+  assert.equal(effortLevel(9.6)!.rpe, 10);
+  assert.equal(effortLevel(0), null);
+});
+
+test('gotowość trenera: liczy treningi z oceną co najmniej jednej serii roboczej, rozgrzewka się nie liczy', () => {
+  const ws = [
+    wk('2026-10-01', [{ id: 'a', exerciseId: 'bench', notes: '', sets: [set({ rpe: 8 }), set()] }]),
+    wk('2026-10-03', [{ id: 'a', exerciseId: 'bench', notes: '', sets: [set(), set()] }]),
+    wk('2026-10-05', [{ id: 'a', exerciseId: 'bench', notes: '', sets: [set({ warmup: true, rpe: 5 }), set()] }]),
+    wk('2026-10-07', [{ id: 'a', exerciseId: 'bench', notes: '', sets: [set({ rpe: 7 })] }, { id: 'b', exerciseId: 'bench', notes: '', sets: [set({ rpe: 9 })] }]),
+  ];
+  assert.deepEqual(ratedSessionCounts(ws), { bench: 2 });
+  assert.equal(sessionEffort([set({ rpe: 7 }), set({ rpe: 9 }), set({ warmup: true, rpe: 10 })]), 9);
+  assert.equal(sessionEffort([set()]), null);
+});

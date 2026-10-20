@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QrScanner, QrSender } from '../shared/qr';
 import { Kind, bundleToFile, type PcBundle } from '../shared/transfer';
+import { EFFORT_LEVELS, TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
 import {
   CATALOG, applyPcBundle, estSetSec, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
-  phoneBundle, saveState, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
+  phoneBundle, ratedCount, saveState, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
 } from './state';
 
 type Screen = { s: 'home' } | { s: 'workout' } | { s: 'send'; ids: string[] } | { s: 'receive' } | { s: 'settings' } | { s: 'view'; id: string };
@@ -161,6 +162,8 @@ function WorkoutScreen({ st, update, go }: P) {
   const [picker, setPicker] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [openSet, setOpenSet] = useState<string | null>(null);
+  /** Seria właśnie odhaczona – pod nią pokazujemy szybki wybór trudności */
+  const [rateSet, setRateSet] = useState<string | null>(null);
   useWakeLock(true);
 
   const setW = (fn: (w: PWorkout) => PWorkout) => update(s => ({ ...s, active: s.active ? fn(s.active) : s.active }));
@@ -181,6 +184,7 @@ function WorkoutScreen({ st, update, go }: P) {
 
   const tick = (ex: PExercise, set: PSet) => {
     unlockAudio();
+    setRateSet(!set.doneAt && !set.warmup ? set.id : null);
     const t = Date.now();
     update(s => {
       if (!s.active) return s;
@@ -267,6 +271,7 @@ function WorkoutScreen({ st, update, go }: P) {
                   </span>
                   {last && <span className="p-sub">Ostatnio: <b>{last[1] != null ? `${fmtKg(last[1])} kg × ` : ''}{last[2] ?? '–'}</b> ({fmtDay(last[0])})</span>}
                   {e.notes && <span className="p-sub">{e.notes}</span>}
+                  <TrainerBadge n={ratedCount(st, e.exerciseId)} />
                 </div>
                 <ExMenu onUp={ei > 0 ? () => setW(x => { const a = [...x.exercises]; [a[ei - 1], a[ei]] = [a[ei], a[ei - 1]]; return { ...x, exercises: a }; }) : undefined}
                   onRemove={() => setW(x => ({ ...x, exercises: x.exercises.filter(y => y.id !== e.id) }))} />
@@ -278,16 +283,19 @@ function WorkoutScreen({ st, update, go }: P) {
                   const open = openSet === x.id;
                   return (
                     <div key={x.id} className={`p-set ${x.doneAt ? 'done' : ''} ${x.warmup ? 'warm' : ''}`}>
-                      <button className="p-setn" onClick={() => setOpenSet(open ? null : x.id)} aria-label="Opcje serii">{x.warmup ? 'R' : n}<i>⋯</i></button>
+                      <button className="p-setn" onClick={() => setOpenSet(open ? null : x.id)} aria-label="Opcje serii">{x.warmup ? 'R' : n}<i className={x.rpe != null ? 'rated' : ''}>{x.rpe != null ? `${effortPct(x.rpe)}%` : '⋯'}</i></button>
                       <Stepper value={x.kg} step={st.settings.kgStep} decimals onChange={v => setSet(e.id, x.id, { kg: v })} label="Ciężar" />
                       <Stepper value={x.dur != null && x.reps == null ? x.dur : x.reps} step={x.dur != null && x.reps == null ? 5 : 1}
                         onChange={v => setSet(e.id, x.id, x.dur != null && x.reps == null ? { dur: v } : { reps: v })} label={x.dur != null && x.reps == null ? 'Czas (s)' : 'Powtórzenia'} suffix={x.dur != null && x.reps == null ? 's' : ''} />
                       <button className={`p-check ${x.doneAt ? 'on' : ''}`} onClick={() => tick(e, x)} aria-label={x.doneAt ? 'Cofnij odhaczenie' : 'Odhacz serię'}>✓</button>
+                      {!open && rateSet === x.id && x.doneAt && (
+                        <div className="p-set-more"><EffortBar value={x.rpe} onChange={v => { setSet(e.id, x.id, { rpe: v }); if (v != null) setTimeout(() => setRateSet(r => (r === x.id ? null : r)), 350); }} /></div>
+                      )}
                       {open && (
                         <div className="p-set-more">
                           <button className={`p-chip ${x.warmup ? 'on' : ''}`} onClick={() => setSet(e.id, x.id, { warmup: !x.warmup })}>Rozgrzewkowa</button>
                           <button className={`p-chip ${x.dur != null && x.reps == null ? 'on' : ''}`} onClick={() => setSet(e.id, x.id, x.dur != null && x.reps == null ? { dur: null, reps: 8 } : { dur: 30, reps: null })}>Na czas</button>
-                          <span className="p-rpe">RPE {[7, 8, 9, 10].map(r => <button key={r} className={`p-chip ${x.rpe === r ? 'on' : ''}`} onClick={() => setSet(e.id, x.id, { rpe: x.rpe === r ? null : r })}>{r}</button>)}</span>
+                          {!x.warmup && <EffortBar value={x.rpe} onChange={v => setSet(e.id, x.id, { rpe: v })} />}
                           {x.restSec != null && <span className="p-sub">przerwa po serii: {fmtClock(x.restSec)}</span>}
                           <button className="p-chip danger" onClick={() => { setEx(e.id, y => ({ ...y, sets: y.sets.filter(z => z.id !== x.id) })); setOpenSet(null); }}>Usuń serię</button>
                         </div>
@@ -296,7 +304,7 @@ function WorkoutScreen({ st, update, go }: P) {
                   );
                 })}
               </div>
-              <button className="p-add" onClick={() => setEx(e.id, y => { const l = y.sets[y.sets.length - 1]; return { ...y, sets: [...y.sets, l ? { ...l, id: uid(), doneAt: null, restSec: null, warmup: false } : newExercise(st, y.exerciseId).sets[0]] }; })}>+ Seria</button>
+              <button className="p-add" onClick={() => setEx(e.id, y => { const l = y.sets[y.sets.length - 1]; return { ...y, sets: [...y.sets, l ? { ...l, id: uid(), doneAt: null, restSec: null, warmup: false, rpe: null } : newExercise(st, y.exerciseId).sets[0]] }; })}>+ Seria</button>
             </section>
           );
         })}
@@ -325,6 +333,34 @@ function WorkoutScreen({ st, update, go }: P) {
         setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 50);
       }} />}
     </>
+  );
+}
+
+/** Trudność serii: 6 pól od „lekko” do „upadek”. Ponowne stuknięcie wybranego pola kasuje ocenę. */
+function EffortBar({ value, onChange }: { value: number | null; onChange: (rpe: number | null) => void }) {
+  const sel = value == null ? null : EFFORT_LEVELS.reduce((a, l) => (Math.abs(l.rpe - value) < Math.abs(a.rpe - value) ? l : a)).rpe;
+  return (
+    <div className="p-effort" role="group" aria-label="Trudność serii">
+      <span className="p-effort-t">Trudność serii – ile powtórzeń zostało w zapasie?</span>
+      <div className="p-effort-bar">
+        {EFFORT_LEVELS.map(l => (
+          <button key={l.rpe} className={`${sel != null && l.rpe <= sel ? 'fill' : ''} ${sel === l.rpe ? 'on' : ''}`} style={{ ['--h' as any]: (l.rpe - 5) / 5 }}
+            onClick={() => onChange(sel === l.rpe ? null : l.rpe)} aria-label={`${l.pct}%: ${l.label}`} aria-pressed={sel === l.rpe}>
+            <b>{l.pct}%</b><span>{l.short}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TrainerBadge({ n }: { n: number }) {
+  const ready = n >= TRAINER_MIN_SESSIONS;
+  return (
+    <span className={`p-trainer ${ready ? 'ready' : ''}`}>
+      <i>{Array.from({ length: TRAINER_MIN_SESSIONS }, (_, k) => <b key={k} className={k < n ? 'on' : ''} />)}</i>
+      {ready ? 'Trener: dane zebrane' : `Trener: ${Math.min(n, TRAINER_MIN_SESSIONS)}/${TRAINER_MIN_SESSIONS} treningów z oceną trudności`}
+    </span>
   );
 }
 
@@ -479,7 +515,7 @@ function ViewScreen({ st, update, id, go }: P & { id: string }) {
           return (
             <section className="p-ex" key={e.id}>
               <h3>{lookupExercise(st, e.exerciseId)?.name ?? e.exerciseId}</h3>
-              <div className="p-done-list">{done.map((x, i) => <span key={i} className={x.warmup ? 'warm' : ''}>{x.kg != null ? `${fmtKg(x.kg)} kg × ` : ''}{x.reps ?? (x.dur != null ? `${x.dur} s` : '–')}{x.rpe ? ` @${x.rpe}` : ''}</span>)}</div>
+              <div className="p-done-list">{done.map((x, i) => <span key={i} className={x.warmup ? 'warm' : ''}>{x.kg != null ? `${fmtKg(x.kg)} kg × ` : ''}{x.reps ?? (x.dur != null ? `${x.dur} s` : '–')}{x.rpe != null ? ` · ${effortPct(x.rpe)}%` : ''}</span>)}</div>
             </section>
           );
         })}

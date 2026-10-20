@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store/store';
-import { e1rm, isWorkingSet } from '../lib/stats';
+import { e1rm, isWorkingSet, sessionEffort } from '../lib/stats';
+import { TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
 import { ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, fmtDate, fmtNum, useFilteredExercises } from '../ui/common';
 import { ExerciseEditor } from './ExerciseEditor';
 
@@ -20,7 +21,7 @@ export function ExercisesView() {
       .filter(h => h.sets.length)
       .map(h => {
         const best = h.sets.reduce((a, s) => (e1rm(s.weightKg ?? 0, s.reps ?? 0) > e1rm(a.weightKg ?? 0, a.reps ?? 0) ? s : a), h.sets[0]);
-        return { date: h.w.date, sets: h.sets, best, est: e1rm(best.weightKg ?? 0, best.reps ?? 0), vol: h.sets.reduce((a, s) => a + (s.reps ?? 0) * (s.weightKg ?? 0), 0) };
+        return { date: h.w.date, sets: h.sets, effort: sessionEffort(h.sets), best, est: e1rm(best.weightKg ?? 0, best.reps ?? 0), vol: h.sets.reduce((a, s) => a + (s.reps ?? 0) * (s.weightKg ?? 0), 0) };
       })
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [db.workouts, sel, profile]);
@@ -55,9 +56,12 @@ export function ExercisesView() {
             </div>
             <div className="panel">
               <h2>Twoja historia</h2>
+              {(() => { const n = history.filter(h => h.effort != null).length; const ok = n >= TRAINER_MIN_SESSIONS;
+                return <div className={`trainer ${ok ? 'ready' : ''}`}><i>{Array.from({ length: TRAINER_MIN_SESSIONS }, (_, k) => <b key={k} className={k < n ? 'on' : ''} />)}</i>
+                  {ok ? `Trener: dane zebrane (${n} treningów z oceną trudności) – podpowiedzi ciężaru pojawią się w kolejnej wersji.` : `Trener: ${n} z ${TRAINER_MIN_SESSIONS} treningów z oceną trudności. Oceniaj przynajmniej ostatnią serię.`}</div>; })()}
               {history.length === 0 ? <p className="note">Jeszcze nie wykonywałeś tego ćwiczenia w profilu {profile!.name}.</p> : (
                 <table className="mtable">
-                  <thead><tr><th>Data</th><th>Najlepsza seria</th><th className="r">Szac. 1RM</th><th className="r">Serie</th></tr></thead>
+                  <thead><tr><th>Data</th><th>Najlepsza seria</th><th className="r">Szac. 1RM</th><th className="r">Serie</th><th className="r">Trudność</th></tr></thead>
                   <tbody>{history.slice(0, 30).map((h, i) => (
                     <tr key={i}>
                       <td>{fmtDate(h.date)}</td>
@@ -65,6 +69,7 @@ export function ExercisesView() {
                       <td className="r num"><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                         <i className="meter" style={{ width: 50, ['--w' as any]: `${(h.est / maxEst) * 100}%` }} />{h.est ? fmtNum(h.est) : '–'}</span></td>
                       <td className="r num">{h.sets.length}</td>
+                      <td className="r num">{h.effort != null ? `${effortPct(h.effort)}%` : '–'}</td>
                     </tr>))}</tbody>
                 </table>
               )}

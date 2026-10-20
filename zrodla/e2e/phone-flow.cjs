@@ -44,8 +44,8 @@ app.whenReady().then(async () => {
       await js(`(() => { const i = document.querySelector('.p-step input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '80'); i.dispatchEvent(new Event('input', { bubbles: true })); i.blur(); })()`); await sleep(200);
       await js(`(() => { const ex = document.querySelectorAll('.p-ex')[1]; const b = ex.querySelectorAll('.p-step')[1].querySelectorAll('button')[1]; for (let k = 0; k < 8; k++) b.click(); })()`); await sleep(300);
       const tickN = (ex, set) => js(`document.querySelectorAll('.p-ex')[${ex}].querySelectorAll('.p-check')[${set}].click()`);
-      await tickN(0, 0); await sleep(2200); await shot('p03-przerwa');
-      await click('Zaczynam serię'); await sleep(1200); await tickN(0, 1); await sleep(1500); await tickN(0, 2); await sleep(800);
+      await tickN(0, 0); await sleep(600); await shot('p03-ocena-trudnosci'); await js(`document.querySelector('.p-effort-bar button:nth-child(4)').click()`); await sleep(1600); await shot('p03b-przerwa');
+      await click('Zaczynam serię'); await sleep(1200); await tickN(0, 1); await sleep(1500); await tickN(0, 2); await sleep(400); await js(`document.querySelector('.p-effort-bar button:nth-child(5)').click()`); await sleep(500);
       await tickN(1, 0); await sleep(700); await tickN(1, 1); await sleep(500);
       await tickN(2, 0); await sleep(300);
       await js(`window.scrollTo(0, 0)`); await shot('p04-trening');

@@ -98,7 +98,6 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .p-check { height: 48px; border-radius: 10px; border: 2px solid var(--line-strong); background: var(--surface); font-size: 22px; color: var(--line-strong); font-weight: 700; }
 .p-check.on { background: var(--ok); border-color: var(--ok); color: #fff; }
 .p-set-more { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0 8px; }
-.p-rpe { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; color: var(--muted); }
 .p-chip { min-height: 36px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 14px; }
 .p-chip.big { min-height: 44px; padding: 0 16px; }
 .p-chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -162,3 +161,22 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .input { min-height: 44px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); padding: 0 10px; width: 100%; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ----- trudność serii */
+.p-setn i.rated { font: 600 10px var(--f-mono); letter-spacing: 0; opacity: 1; color: var(--accent); margin-top: 2px; }
+.p-effort { display: grid; gap: 6px; width: 100%; }
+.p-effort-t { font-size: 12.5px; color: var(--muted); }
+.p-effort-bar { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; }
+.p-effort-bar button { min-height: 50px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 8px; display: grid; align-content: center; justify-items: center; gap: 1px; padding: 2px 0; }
+.p-effort-bar button b { font: 600 14px var(--f-mono); }
+.p-effort-bar button span { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.p-effort-bar button.fill { background: color-mix(in srgb, var(--accent) calc(25% + var(--h) * 60%), var(--surface)); border-color: var(--accent); }
+.p-effort-bar button.fill:last-child { background: color-mix(in srgb, var(--hot) 75%, var(--surface)); }
+.p-effort-bar button.on { box-shadow: inset 0 0 0 2px var(--fg); }
+.p-effort-bar button.fill span { color: var(--fg); }
+.p-trainer { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.p-trainer i { display: inline-flex; gap: 2px; }
+.p-trainer i b { width: 10px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.p-trainer i b.on { background: var(--accent); }
+.p-trainer.ready { color: var(--ok); }
+.p-trainer.ready i b { background: var(--ok); }

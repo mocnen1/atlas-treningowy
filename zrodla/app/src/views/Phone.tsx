@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store/store';
 import { uid, type Db, type Workout } from '../store/types';
-import { isWorkingSet, e1rm } from '../lib/stats';
+import { isWorkingSet, e1rm, ratedSessionCounts } from '../lib/stats';
 import { QrScanner, QrSender } from '../shared/qr';
 import { Kind, bundleFromFile, encodeFrames, type Bundle, type PcBundle, type PhoneBundle, type TransferLast } from '../shared/transfer';
 import { fmtDate } from '../ui/common';
@@ -32,6 +32,7 @@ export function buildPcBundle(db: Db, profileId: string): PcBundle {
     plans: plans.map(p => ({ id: p.id, name: p.name, exercises: p.exercises.map(e => ({ exerciseId: e.exerciseId, sets: e.sets, repsMin: e.repsMin, repsMax: e.repsMax, restSec: e.restSec, notes: e.notes })) })),
     custom: db.customExercises.map(c => ({ id: c.id, name: c.name, eq: c.equipmentPl, vol: c.countsForVolume, top: Object.keys(c.muscles)[0] ?? null })),
     last,
+    rated: ratedSessionCounts(workouts),
   };
 }
 
