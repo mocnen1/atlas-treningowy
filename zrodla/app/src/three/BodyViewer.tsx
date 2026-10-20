@@ -3,17 +3,20 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import bodyUrl from '../assets/body.glb?url';
+import maleUrl from '../assets/body.glb?url';
+import femaleUrl from '../assets/body_f.glb?url';
 import type { MuscleId } from '../data/catalog';
+import type { BodyModel } from '../store/types';
+import { useStore } from '../store/store';
 
-let modelPromise: Promise<GLTF> | null = null;
-function loadModel() {
-  if (!modelPromise) {
+const modelPromises: Partial<Record<BodyModel, Promise<GLTF>>> = {};
+function loadModel(model: BodyModel) {
+  if (!modelPromises[model]) {
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
-    modelPromise = loader.loadAsync(bodyUrl);
+    modelPromises[model] = loader.loadAsync(model === 'female' ? femaleUrl : maleUrl);
   }
-  return modelPromise;
+  return modelPromises[model]!;
 }
 
 export const cssVar = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -29,6 +32,8 @@ export interface BodyViewerProps {
   /** Zmień tę wartość, gdy kolory zależą od danych, żeby model się przemalował */
   paintKey?: unknown;
   compact?: boolean;
+  /** Model 3D; domyślnie model aktywnego profilu */
+  model?: BodyModel;
 }
 
 type Inst = {
@@ -44,6 +49,9 @@ export function BodyViewer(p: BodyViewerProps) {
   const tipRef = useRef<HTMLDivElement>(null);
   const inst = useRef<Inst | null>(null);
   const props = useRef(p); props.current = p;
+  const { profile } = useStore();
+  const model: BodyModel = p.model ?? profile?.bodyModel ?? 'male';
+  const [hasBones, setHasBones] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bones, setBones] = useState(true);
@@ -89,7 +97,8 @@ export function BodyViewer(p: BodyViewerProps) {
     };
     const ro = new ResizeObserver(resize); ro.observe(wrap.current!); resize();
 
-    loadModel().then(gltf => {
+    setReady(false); setError(null);
+    loadModel(model).then(gltf => {
       if (disposed) return;
       const root = gltf.scene.clone(true);
       root.traverse(o => {
@@ -111,6 +120,7 @@ export function BodyViewer(p: BodyViewerProps) {
       scene.add(root);
       const h = box.max.y - box.min.y;
       i.center.set(0, h * 0.52, 0); i.dist = h * (props.current.compact ? 2.15 : 1.95); controls.maxDistance = h * 4;
+      setHasBones(i.bones.length > 0);
       setView('front');
       paint(); setReady(true);
     }).catch(e => setError(String(e?.message ?? e)));
@@ -165,9 +175,9 @@ export function BodyViewer(p: BodyViewerProps) {
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointerup', onUp);
       controls.dispose();
       for (const m of i.muscles) m.mat.dispose();
-      renderer.dispose(); inst.current = null;
+      renderer.dispose(); renderer.forceContextLoss(); inst.current = null;
     };
-  }, []);
+  }, [model]);
 
   useEffect(() => { paint(); }, [p.paintKey, p.selected, p.colorOf]);
   useEffect(() => { inst.current?.bones.forEach(b => (b.visible = bones)); }, [bones, ready]);
@@ -182,14 +192,14 @@ export function BodyViewer(p: BodyViewerProps) {
 
   return (
     <div className="viewer" ref={wrap}>
-      <canvas ref={canvas} aria-label="Model 3D mięśni" />
+      <canvas key={model} ref={canvas} aria-label="Model 3D mięśni" />
       {!ready && <div className="viewer-msg">{error ? `Nie udało się wczytać modelu: ${error}` : 'Wczytywanie modelu…'}</div>}
       <div className="viewer-tip" ref={tipRef} hidden />
       <div className="viewer-tools">
         <button onClick={() => setView('front')}>Przód</button>
         <button onClick={() => setView('back')}>Tył</button>
         <button onClick={() => setView('side')}>Bok</button>
-        <button aria-pressed={bones} onClick={() => setBones(b => !b)}>Szkielet</button>
+        {hasBones && <button aria-pressed={bones} onClick={() => setBones(b => !b)}>Szkielet</button>}
         {!p.compact && <button aria-pressed={spin} onClick={() => setSpin(s => !s)}>Obrót</button>}
       </div>
     </div>

@@ -6,7 +6,7 @@ import { ExerciseAnim } from '../shared/ExerciseImage';
 import { ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, pct, rampColor, useFilteredExercises } from '../ui/common';
 
 export function AtlasView() {
-  const { exercises, lookup } = useStore();
+  const { exercises, lookup, profile } = useStore();
   const [hover, setHover] = useState<string | null>(null);   // ostatnio wskazany mięsień (zostaje po zjechaniu z modelu)
   const [pinned, setPinned] = useState<string | null>(null);
   const [exId, setExId] = useState<string | null>(null);
@@ -19,7 +19,7 @@ export function AtlasView() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><div className="eyebrow">Model: Z-Anatomy (CC BY-SA 4.0)</div><h1>Atlas mięśni</h1></div>
+        <div><div className="eyebrow">{profile?.bodyModel === 'female' ? 'Model: R. Gadzhiev (CC BY 4.0)' : 'Model: Z-Anatomy (CC BY-SA 4.0)'}</div><h1>Atlas mięśni</h1></div>
         <span className="sub">Najedź na mięsień, żeby zobaczyć ćwiczenia, które go wzmacniają. Kliknięcie przypina mięsień.</span>
       </div>
       <div className="split">

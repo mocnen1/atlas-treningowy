@@ -11,7 +11,7 @@ const LEGS: Plan = [['Barbell_Squat', 4, 6, 100], ['Romanian_Deadlift', 3, 8, 90
   ['Lying_Leg_Curls', 3, 12, 40], ['Standing_Calf_Raises', 4, 12, 80], ['Cable_Crunch', 3, 15, 40]];
 
 export function demoData(): { profile: Profile; workouts: Workout[] } {
-  const profile: Profile = { id: uid(), name: 'Przykład (dane testowe)', bodyMassKg: 80, createdAt: new Date().toISOString(), targets: {} };
+  const profile: Profile = { id: uid(), name: 'Przykład (dane testowe)', bodyMassKg: 80, createdAt: new Date().toISOString(), targets: {}, bodyModel: 'male' };
   const workouts: Workout[] = [];
   const today = todayIso();
   const plans: [string, Plan][] = [['Push', PUSH], ['Pull', PULL], ['Nogi', LEGS]];

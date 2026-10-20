@@ -2,11 +2,15 @@ import type { MuscleId, Weights } from '../data/catalog';
 
 export const DB_VERSION = 1;
 
+export type BodyModel = 'male' | 'female';
+
 export interface Profile {
   id: string;
   name: string;
   bodyMassKg: number | null;
   createdAt: string;
+  /** Model 3D: męski (Z-Anatomy, z kośćmi) albo kobiecy (R. Gadzhiev, bez kości) */
+  bodyModel: BodyModel;
   /** Cele tygodniowe w efektywnych seriach; brak klucza = cel domyślny, null = bez celu */
   targets: Record<MuscleId, [number, number] | null>;
 }
@@ -105,7 +109,7 @@ export function normalizeDb(raw: unknown): Db {
   db.customExercises = r.customExercises ?? [];
   db.weightOverrides = r.weightOverrides ?? {};
   db.plans = (r.plans ?? []).map((p: any) => ({ createdAt: new Date().toISOString(), ...p, exercises: (p.exercises ?? []).map((e: any) => ({ sets: 3, repsMin: null, repsMax: null, restSec: null, notes: '', ...e })) }));
-  db.profiles = db.profiles.map((p: any) => ({ bodyMassKg: null, targets: {}, createdAt: new Date().toISOString(), ...p }));
+  db.profiles = db.profiles.map((p: any) => ({ bodyMassKg: null, targets: {}, createdAt: new Date().toISOString(), ...p, bodyModel: p.bodyModel === 'female' ? 'female' : 'male' }));
   db.workouts = db.workouts.map((w: any) => ({
     startTime: null, durationMin: null, name: '', notes: '', source: 'ręcznie', createdAt: new Date().toISOString(), ...w,
     exercises: (w.exercises ?? []).map((e: any) => ({

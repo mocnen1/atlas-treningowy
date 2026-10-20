@@ -2,18 +2,19 @@ import { useEffect, useState } from 'react';
 import { isDesktop, useStore } from '../store/store';
 import { normalizeDb, todayIso, uid } from '../store/types';
 import { demoData } from '../lib/demo';
-import { ConfirmButton } from '../ui/common';
+import { ConfirmButton, ModelChoice } from '../ui/common';
 
 export function SettingsView() {
   const { db, update, replaceDb, profile } = useStore();
   const [newName, setNewName] = useState('');
+  const [newModel, setNewModel] = useState<'male' | 'female'>('male');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [path, setPath] = useState<string | null>(null);
   useEffect(() => { window.atlasApi?.dataPath().then(setPath); }, []);
 
   const addProfile = () => {
     if (!newName.trim()) return;
-    update(d => { const id = uid(); d.profiles.push({ id, name: newName.trim(), bodyMassKg: null, createdAt: new Date().toISOString(), targets: {} }); d.activeProfileId = id; });
+    update(d => { const id = uid(); d.profiles.push({ id, name: newName.trim(), bodyMassKg: null, createdAt: new Date().toISOString(), targets: {}, bodyModel: newModel }); d.activeProfileId = id; });
     setNewName('');
   };
 
@@ -40,7 +41,7 @@ export function SettingsView() {
       <div className="panel">
         <h2>Profile</h2>
         <table className="mtable">
-          <thead><tr><th>Nazwa</th><th>Masa ciała (kg)</th><th className="r">Treningi</th><th /></tr></thead>
+          <thead><tr><th>Nazwa</th><th>Masa ciała (kg)</th><th>Model 3D</th><th className="r">Treningi</th><th /></tr></thead>
           <tbody>
             {db.profiles.map(p => {
               const n = db.workouts.filter(w => w.profileId === p.id).length;
@@ -49,6 +50,7 @@ export function SettingsView() {
                   <td><input className="input" id={`pn-${p.id}`} value={p.name} onChange={e => update(d => { d.profiles.find(x => x.id === p.id)!.name = e.target.value; })} aria-label="Nazwa profilu" /></td>
                   <td><input className="input" id={`pm-${p.id}`} inputMode="decimal" style={{ maxWidth: 110 }} defaultValue={p.bodyMassKg ?? ''} aria-label="Masa ciała"
                     onBlur={e => { const v = Number(e.target.value.replace(',', '.')); update(d => { d.profiles.find(x => x.id === p.id)!.bodyMassKg = e.target.value.trim() && Number.isFinite(v) ? v : null; }); }} /></td>
+                  <td><ModelChoice id={`pmod-${p.id}`} value={p.bodyModel} onChange={v => update(d => { d.profiles.find(x => x.id === p.id)!.bodyModel = v; })} /></td>
                   <td className="r num">{n}</td>
                   <td className="r">
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
@@ -64,6 +66,7 @@ export function SettingsView() {
         </table>
         <div className="row">
           <label className="field" style={{ flex: 1 }}>Nowy profil<input id="new-profile" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addProfile()} placeholder="imię" /></label>
+          <div className="field">Model 3D<ModelChoice id="new-model" value={newModel} onChange={setNewModel} /></div>
           <button className="btn" disabled={!newName.trim()} onClick={addProfile}>Dodaj profil</button>
         </div>
       </div>
@@ -88,7 +91,7 @@ export function SettingsView() {
         <div><button className="btn" onClick={() => { const { profile: p, workouts } = demoData(); update(d => { d.profiles.push(p); d.workouts.push(...workouts); d.activeProfileId = p.id; }); setMsg({ ok: true, text: 'Dodano profil przykładowy i przełączono na niego.' }); }}>Dodaj profil przykładowy</button></div>
       </div>
 
-      <p className="note">Model 3D: Z-Anatomy (CC BY-SA 4.0) na bazie BodyParts3D, The Database Center for Life Science (CC BY-SA 2.1 JP). Baza ćwiczeń: free-exercise-db (domena publiczna). Wagi zaangażowania mięśni to szacunki biomechaniczne, nie pomiary.</p>
+      <p className="note">Model 3D męski: Z-Anatomy (CC BY-SA 4.0) na bazie BodyParts3D, The Database Center for Life Science (CC BY-SA 2.1 JP). Model 3D damski: na podstawie „Female Body Muscular System – Anatomy Study” autorstwa Ruslana Gadzhieva (sketchfab.com/ruslangadzhiev), licencja CC BY 4.0; przypisanie mięśni wykonane automatycznie na podstawie modelu męskiego (przybliżone). Baza ćwiczeń: free-exercise-db (domena publiczna). Wagi zaangażowania mięśni to szacunki biomechaniczne, nie pomiary.</p>
     </div>
   );
 }

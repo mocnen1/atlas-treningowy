@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ModelChoice } from './ui/common';
 import { useStore } from './store/store';
 import { uid } from './store/types';
 import { WorkoutsView } from './views/Workouts';
@@ -63,11 +64,12 @@ function FirstProfile() {
   const { update } = useStore();
   const [name, setName] = useState('');
   const [mass, setMass] = useState('');
+  const [model, setModel] = useState<'male' | 'female'>('male');
   const create = () => {
     if (!name.trim()) return;
     update(d => {
       const id = uid();
-      d.profiles.push({ id, name: name.trim(), bodyMassKg: mass ? Number(mass.replace(',', '.')) : null, createdAt: new Date().toISOString(), targets: {} });
+      d.profiles.push({ id, name: name.trim(), bodyMassKg: mass ? Number(mass.replace(',', '.')) : null, createdAt: new Date().toISOString(), targets: {}, bodyModel: model });
       d.activeProfileId = id;
     });
   };
@@ -80,6 +82,10 @@ function FirstProfile() {
         <div className="grid-form">
           <label className="field">Imię lub nazwa<input id="np-name" autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} /></label>
           <label className="field">Masa ciała (kg, opcjonalnie)<input id="np-mass" inputMode="decimal" value={mass} onChange={e => setMass(e.target.value)} /></label>
+        </div>
+        <div className="field">Model ciała 3D
+          <div><ModelChoice id="np-model" value={model} onChange={setModel} /></div>
+          <span className="note" style={{ margin: 0 }}>Wpływa tylko na wygląd modelu mięśni. Możesz go zmienić później w „Profile i dane”.</span>
         </div>
         <div><button className="btn primary" disabled={!name.trim()} onClick={create}>Utwórz profil</button></div>
       </div>

@@ -183,3 +183,13 @@ export function EffortSelect(p: { value: number | null; onChange: (rpe: number |
   );
 }
 export const effortColor = (rpe: number) => (rpe >= 10 ? cssVar('--hot') : mix(cssVar('--none'), cssVar('--accent'), Math.max(0, Math.min(1, (rpe - 5) / 4))));
+
+/** Wybór modelu 3D profilu: męski albo damski */
+export function ModelChoice({ value, onChange, id }: { value: 'male' | 'female'; onChange: (v: 'male' | 'female') => void; id?: string }) {
+  return (
+    <div className="seg" id={id} role="group" aria-label="Model 3D">
+      <button type="button" aria-pressed={value === 'male'} onClick={() => onChange('male')}>Męski</button>
+      <button type="button" aria-pressed={value === 'female'} onClick={() => onChange('female')}>Damski</button>
+    </div>
+  );
+}
