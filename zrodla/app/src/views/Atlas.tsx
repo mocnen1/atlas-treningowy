@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../store/store';
 import { GROUPS, MUSCLE_BY_ID, MUSCLES, shortName } from '../data/catalog';
 import { BodyViewer } from '../three/BodyViewer';
+import { ExerciseAnim } from '../shared/ExerciseImage';
 import { ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, pct, rampColor, useFilteredExercises } from '../ui/common';
 
 export function AtlasView() {
@@ -36,6 +37,7 @@ export function AtlasView() {
               <div className="eyebrow">Ćwiczenie · {ex.equipmentPl} · wagi {ex.weightsSource}</div>
               <h2 style={{ fontSize: 22, textTransform: 'none' }}>{ex.name}</h2>
               <div className="muted">{ex.nameEn}</div>
+              {ex.hasImg && <ExerciseAnim id={ex.id} alt={ex.name} />}
               <MuscleBars weights={ex.muscles} onClick={mid => { setExId(null); setPinned(mid); setHover(mid); }} />
               <div><button className="btn small" onClick={() => setExId(null)}>Zamknij ćwiczenie</button></div>
             </div>

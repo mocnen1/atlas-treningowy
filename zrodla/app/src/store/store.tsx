@@ -90,7 +90,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const builtin = BUILTIN_EXERCISES.map(e => db.weightOverrides[e.id] ? { ...e, muscles: db.weightOverrides[e.id] } : e);
     const custom: Exercise[] = db.customExercises.map(c => ({
       id: c.id, name: c.name, nameEn: c.nameEn, category: 'strength', categoryPl: 'własne', equipmentPl: c.equipmentPl,
-      muscles: c.muscles, countsForVolume: c.countsForVolume, weightsSource: 'własne', instructionsEn: [], source: 'własne',
+      muscles: c.muscles, countsForVolume: c.countsForVolume, weightsSource: 'własne', instructionsEn: [], source: 'własne', hasImg: false,
     }));
     return [...custom, ...builtin];
   }, [db?.customExercises, db?.weightOverrides]);

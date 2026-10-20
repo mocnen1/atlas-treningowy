@@ -7,6 +7,7 @@ import { BodyViewer } from '../three/BodyViewer';
 import { ConfirmButton, EffortSelect, fmtDate, fmtDur, fmtKg, fmtNum, rampColor } from '../ui/common';
 import { ExercisePicker } from './ExercisePicker';
 import { newWorkout } from './Workouts';
+import { ExerciseAnim, ExerciseThumb } from '../shared/ExerciseImage';
 
 const nowHM = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const parseNum = (s: string) => { const t = s.trim().replace(',', '.'); if (!t) return null; const n = Number(t); return Number.isFinite(n) && n >= 0 ? n : undefined; };
@@ -27,6 +28,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
   const [hover, setHover] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [savedPlan, setSavedPlan] = useState(false);
+  const [showImg, setShowImg] = useState<string | null>(null);
   useEffect(() => { const t = setInterval(() => setTick(x => x + 1), 30_000); return () => clearInterval(t); }, []);
 
   const load = useMemo(() => (w ? workoutLoad(w, lookup) : {}), [w, lookup]);
@@ -121,6 +123,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
               <section className="wex" key={we.id}>
                 <div className="wex-head">
                   <span className="idx">{ei + 1}</span>
+                  {ex?.hasImg && <button className="thumb-btn" onClick={() => setShowImg(v => (v === we.id ? null : we.id))} aria-label="Pokaż, jak wykonać ćwiczenie" title="Jak wykonać"><ExerciseThumb id={ex.id} has size={40} /></button>}
                   <div style={{ minWidth: 0 }}>
                     <h3>{ex?.name ?? `Nieznane ćwiczenie (${we.exerciseId})`}</h3>
                     {ex && <div className="muted" style={{ fontSize: 12 }}>{ex.equipmentPl} · {Object.keys(ex.muscles).slice(0, 3).map(shortName).join(', ')}</div>}
@@ -131,6 +134,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
                     <ConfirmButton className="small ghost" label="Usuń" confirm="Usunąć ćwiczenie?" onConfirm={() => set(d => { d.exercises = d.exercises.filter(y => y.id !== we.id); })} />
                   </div>
                 </div>
+                {showImg === we.id && ex && <div className="wex-img"><ExerciseAnim id={ex.id} alt={ex.name} /></div>}
                 <div style={{ overflowX: 'auto' }}>
                   <table className="sets">
                     <thead><tr><th>Seria</th><th>Rozgrz.</th><th>Ciężar kg</th><th>Powt.</th><th>Czas s</th><th>Przerwa s</th><th title="Ile powtórzeń zostało w zapasie: 100% = upadek">Trudność</th><th>Poprzednio</th><th /></tr></thead>

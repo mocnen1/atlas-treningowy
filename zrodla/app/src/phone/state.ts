@@ -3,9 +3,9 @@ import catalogJson from './catalog.json';
 import musclesJson from '../data/muscles.json';
 import { localDate, localTime, type PcBundle, type PhoneBundle, type TransferCustom, type TransferLast, type TransferPlan, type TransferWorkout } from '../shared/transfer';
 
-export interface CatalogItem { id: string; name: string; nameEn: string; eq: string; vol: boolean; top: string | null; verified: boolean; custom?: boolean }
-export const CATALOG: CatalogItem[] = (catalogJson as [string, string, string, string, number, string | null, number][])
-  .map(([id, name, nameEn, eq, vol, top, v]) => ({ id, name, nameEn, eq, vol: !!vol, top, verified: !!v }));
+export interface CatalogItem { id: string; name: string; nameEn: string; eq: string; vol: boolean; top: string | null; verified: boolean; img: boolean; custom?: boolean }
+export const CATALOG: CatalogItem[] = (catalogJson as [string, string, string, string, number, string | null, number, number][])
+  .map(([id, name, nameEn, eq, vol, top, v, img]) => ({ id, name, nameEn, eq, vol: !!vol, top, verified: !!v, img: !!img }));
 const MUSCLE_NAMES: Record<string, string> = Object.fromEntries(musclesJson.muscles.map(m => [m.id, m.name.replace(/\s*\(.*\)$/, '')]));
 export const muscleName = (id: string | null) => (id ? MUSCLE_NAMES[id] ?? '' : '');
 
@@ -52,7 +52,7 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 
 export function lookupExercise(s: PhoneState, id: string): CatalogItem | undefined {
   const c = s.custom.find(x => x.id === id);
-  if (c) return { id: c.id, name: c.name, nameEn: '', eq: c.eq, vol: c.vol, top: c.top, verified: true, custom: true };
+  if (c) return { id: c.id, name: c.name, nameEn: '', eq: c.eq, vol: c.vol, top: c.top, verified: true, img: false, custom: true };
   return CATALOG_BY_ID.get(id);
 }
 const CATALOG_BY_ID = new Map(CATALOG.map(c => [c.id, c]));

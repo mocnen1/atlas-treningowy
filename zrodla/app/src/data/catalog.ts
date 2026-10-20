@@ -1,6 +1,7 @@
 // Katalog: mięśnie (43 mięśnie treningowe modelu 3D) i wbudowana baza ćwiczeń.
 import musclesJson from './muscles.json';
 import exercisesJson from './exercises.json';
+import imgList from './img-list.json';
 
 export type MuscleId = string;
 export type Weights = Record<MuscleId, number>; // 0–1: udział mięśnia w ćwiczeniu
@@ -22,6 +23,8 @@ export interface Exercise {
   weightsSource: 'ręczne' | 'automatyczne' | 'własne';
   instructionsEn: string[];
   source: 'free-exercise-db' | 'uzupełnienie' | 'własne';
+  /** Są zdjęcia pozycji początkowej i końcowej (img/<id>/0.webp, 1.webp, t.webp) */
+  hasImg: boolean;
 }
 
 export const GROUPS: MuscleGroup[] = musclesJson.groups;
@@ -29,10 +32,11 @@ export const MUSCLES: Muscle[] = musclesJson.muscles.map(({ id, group, name, lat
 export const MUSCLE_BY_ID: Record<MuscleId, Muscle> = Object.fromEntries(MUSCLES.map(m => [m.id, m]));
 export const shortName = (id: MuscleId) => (MUSCLE_BY_ID[id]?.name ?? id).replace(/\s*\(.*\)$/, '');
 
+const WITH_IMG = new Set<string>(imgList as string[]);
 export const BUILTIN_EXERCISES: Exercise[] = (exercisesJson as any[]).map(e => ({
   id: e.id, name: e.name, nameEn: e.nameEn, category: e.category, categoryPl: e.categoryPl, equipmentPl: e.equipmentPl,
   level: e.level, levelPl: e.levelPl, muscles: e.muscles, countsForVolume: e.countsForVolume,
-  weightsSource: e.weightsSource, instructionsEn: e.instructionsEn ?? [], source: e.source,
+  weightsSource: e.weightsSource, instructionsEn: e.instructionsEn ?? [], source: e.source, hasImg: WITH_IMG.has(e.id),
 }));
 
 export const EQUIPMENT = ['sztanga', 'sztanga łamana', 'hantle', 'kettlebell', 'wyciąg', 'maszyna', 'masa ciała', 'gumy',

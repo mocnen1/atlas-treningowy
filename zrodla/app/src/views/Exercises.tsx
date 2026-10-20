@@ -4,6 +4,7 @@ import { e1rm, isWorkingSet, sessionEffort } from '../lib/stats';
 import { TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
 import { ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, fmtDate, fmtNum, useFilteredExercises } from '../ui/common';
 import { ExerciseEditor } from './ExerciseEditor';
+import { ExerciseAnim } from '../shared/ExerciseImage';
 
 export function ExercisesView() {
   const { db, exercises, lookup, profile } = useStore();
@@ -45,6 +46,7 @@ export function ExercisesView() {
               <div className="eyebrow">{ex.equipmentPl} · {ex.categoryPl}{ex.levelPl ? ` · ${ex.levelPl}` : ''}</div>
               <h2 style={{ fontSize: 22, textTransform: 'none' }}>{ex.name}</h2>
               {ex.nameEn && <div className="muted">{ex.nameEn}</div>}
+              {ex.hasImg ? <ExerciseAnim id={ex.id} alt={ex.name} /> : <p className="note">Brak zdjęć dla tego ćwiczenia.</p>}
               <div className="row">
                 <span className="chip">wagi: {ex.weightsSource}{db.weightOverrides[ex.id] ? ' (poprawione przez Ciebie)' : ''}</span>
                 {ex.source === 'własne'

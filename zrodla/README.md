@@ -1,7 +1,7 @@
 # Atlas Treningowy – kod źródłowy
 
 Dziennik treningowy z modelem 3D mięśni: aplikacja na Windows (Electron) i aplikacja na iPhone'a (PWA, ten sam kod React).
-Wersja 0.5.0.
+Wersja 0.6.0.
 
 ## Struktura
 
@@ -45,6 +45,11 @@ Podgląd w przeglądarce podczas pracy: `npm run dev` (Windows) i `npm run dev:p
 - `pl_names_*.txt` – polskie nazwy.
 
 Po przebudowaniu skopiuj `dane/exercises.json` do `app/src/data/` i uruchom `node scripts/phone-catalog.mjs` w `app/`.
+
+## Zdjęcia ćwiczeń
+
+`dane/build/make_images.py <free-exercise-db/exercises> dane/exercises.json <wyjście>` tworzy `img/<id>/0.webp`, `1.webp` (pozycja początkowa i końcowa) i `t.webp` (miniatura) oraz `lista.json`.
+Wynik: kopia w katalogu głównym repozytorium (`img/` – dla telefonu, przez GitHub Pages) i w `app/public-pc/img/` (wbudowane w aplikację na Windows; folder nie jest trzymany w `zrodla/`, żeby nie dublować 22 MB). `lista.json` → `app/src/data/img-list.json`.
 
 ## Model 3D
 

@@ -109,12 +109,13 @@ button.chip:hover { border-color: var(--accent); color: var(--fg); }
 .filters .full { grid-column: 1 / -1; }
 .exlist { list-style: none; margin: 0; padding: 0; display: grid; }
 .exlist li + li { border-top: 1px solid var(--line); }
-.ex { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 60px; gap: 3px 10px; align-items: center; text-align: left; background: transparent; border: 0; padding: 8px 6px; cursor: pointer; border-radius: 4px; }
+.ex { width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) 60px; gap: 3px 10px; align-items: center; text-align: left; background: transparent; border: 0; padding: 8px 6px; cursor: pointer; border-radius: 4px; }
 .ex:hover { background: var(--surface-2); }
 .ex.sel { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
 .ex .nm { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
-.ex .meta { grid-column: 1; font-size: 11.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 3px 8px; }
-.ex .bar { grid-column: 2; grid-row: 1 / span 2; display: grid; gap: 3px; justify-items: end; }
+.ex .ex-thumb { grid-row: 1 / span 2; }
+.ex .meta { grid-column: 2; font-size: 11.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 3px 8px; }
+.ex .bar { grid-column: 3; grid-row: 1 / span 2; display: grid; gap: 3px; justify-items: end; }
 .meter { display: block; height: 6px; width: 100%; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
 .meter::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--c, var(--accent)); }
 .ex .bar span { font: 11px var(--f-mono); color: var(--muted); }
@@ -257,3 +258,19 @@ button.chip:hover { border-color: var(--accent); color: var(--fg); }
 .trainer i b.on { background: var(--accent); }
 .trainer.ready { color: var(--ok); }
 .trainer.ready i b { background: var(--ok); }
+
+/* ---------- Zdjęcia ćwiczeń */
+.ex-anim { position: relative; margin: 0; border-radius: 10px; overflow: hidden; background: #fff; aspect-ratio: 3 / 2; cursor: pointer; }
+.ex-anim img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .25s ease; }
+.ex-anim img.on { opacity: 1; }
+.ex-anim figcaption { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 4px; font: 600 11px/1 var(--f-body); }
+.ex-anim figcaption span { background: #0008; color: #fff; padding: 4px 7px; border-radius: 99px; opacity: .55; }
+.ex-anim figcaption span.on { opacity: 1; background: var(--accent); color: var(--accent-ink); }
+.ex-anim figcaption b { background: #000a; color: #fff; padding: 4px 7px; border-radius: 99px; font-weight: 600; }
+.ex-anim.missing { display: grid; place-items: center; padding: 16px; text-align: center; font-size: 13px; color: var(--muted); background: var(--surface-2); cursor: default; }
+.ex-thumb { flex: none; border-radius: 6px; object-fit: cover; background: var(--surface-2); display: block; }
+.ex-thumb.none { display: inline-block; background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 4px, var(--line) 4px, var(--line) 5px); }
+@media (prefers-reduced-motion: reduce) { .ex-anim img { transition: none; } }
+.thumb-btn { border: 0; padding: 0; background: none; cursor: pointer; border-radius: 6px; }
+.thumb-btn:hover .ex-thumb { outline: 2px solid var(--accent); }
+.wex-img { padding: 10px 12px; border-bottom: 1px solid var(--line); max-width: 460px; }

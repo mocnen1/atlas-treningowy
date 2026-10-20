@@ -3,6 +3,7 @@ import { EQUIPMENT, MUSCLES, shortName, type Exercise, type MuscleId } from '../
 import { cssVar } from '../three/BodyViewer';
 import type { TargetState } from '../lib/stats';
 import { EFFORT_LEVELS, effortLevel } from '../shared/effort';
+import { ExerciseThumb } from '../shared/ExerciseImage';
 
 // ---------- Kolory
 function mix(a: string, b: string, t: number) {
@@ -134,6 +135,7 @@ export function ExerciseList(p: { list: Exercise[]; muscle: MuscleId | null; sel
           return (
             <li key={e.id}>
               <button className={`ex${e.id === p.selected ? ' sel' : ''}`} onClick={() => p.onSelect(e)}>
+                <ExerciseThumb id={e.id} has={e.hasImg} size={44} />
                 <span className="nm">{e.name}</span>
                 <span className="bar">{p.muscle ? <><i className="meter" style={{ ['--w' as any]: pct(w) }} /><span>{pct(w)}</span></> : null}</span>
                 <span className="meta">

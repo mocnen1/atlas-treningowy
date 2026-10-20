@@ -5,6 +5,8 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 // Cała aplikacja w jednym pliku HTML: działa i w Electronie (file://), i jako podgląd w przeglądarce.
 export default defineConfig({
   base: './',
+  // Zdjęcia ćwiczeń jako osobne pliki obok index.html (img/<id>/…), nie wklejane do HTML
+  publicDir: 'public-pc',
   plugins: [react(), viteSingleFile()],
   build: { outDir: 'dist', assetsInlineLimit: 100_000_000, chunkSizeWarningLimit: 10_000 },
 });

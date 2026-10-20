@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QrScanner, QrSender } from '../shared/qr';
 import { Kind, bundleToFile, type PcBundle } from '../shared/transfer';
 import { EFFORT_LEVELS, TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
+import { ExerciseAnim, ExerciseThumb, imgUrl } from '../shared/ExerciseImage';
 import {
   CATALOG, applyPcBundle, estSetSec, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
   phoneBundle, ratedCount, saveState, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
@@ -194,6 +195,7 @@ function WorkoutScreen({ st, update, go }: P) {
   const [openSet, setOpenSet] = useState<string | null>(null);
   /** Seria właśnie odhaczona – pod nią pokazujemy szybki wybór trudności */
   const [rateSet, setRateSet] = useState<string | null>(null);
+  const [showImg, setShowImg] = useState<string | null>(null);
   useWakeLock(true);
 
   const setW = (fn: (w: PWorkout) => PWorkout) => update(s => ({ ...s, active: s.active ? fn(s.active) : s.active }));
@@ -293,6 +295,9 @@ function WorkoutScreen({ st, update, go }: P) {
           return (
             <section className="p-ex" key={e.id}>
               <div className="p-ex-head">
+                {ex?.img
+                  ? <button className="p-thumb" onClick={() => setShowImg(v => (v === e.id ? null : e.id))} aria-label="Pokaż, jak wykonać ćwiczenie"><ExerciseThumb id={ex.id} has size={52} /></button>
+                  : <span />}
                 <div>
                   <h3>{ex?.name ?? e.exerciseId}</h3>
                   <span className="p-sub">
@@ -306,6 +311,7 @@ function WorkoutScreen({ st, update, go }: P) {
                 <ExMenu onUp={ei > 0 ? () => setW(x => { const a = [...x.exercises]; [a[ei - 1], a[ei]] = [a[ei], a[ei - 1]]; return { ...x, exercises: a }; }) : undefined}
                   onRemove={() => setW(x => ({ ...x, exercises: x.exercises.filter(y => y.id !== e.id) }))} />
               </div>
+              {showImg === e.id && ex && <ExerciseAnim id={ex.id} alt={ex.name} />}
               <div className="p-sets">
                 <div className="p-sets-h"><span>Seria</span><span>kg</span><span>Powt.</span><span /></div>
                 {e.sets.map(x => {
@@ -460,6 +466,7 @@ function ExercisePicker({ st, onClose, onPick }: { st: PhoneState; onClose: () =
         {!q && <p className="p-note">{recent.length ? 'Ostatnio wykonywane:' : 'Wpisz nazwę ćwiczenia po polsku lub angielsku.'}</p>}
         {list.map(c => (
           <button key={c.id} className="p-pick" onClick={() => onPick(c.id)}>
+            <ExerciseThumb id={c.id} has={c.img} size={48} />
             <b>{c.name}</b><span>{c.eq}{c.top ? ` · ${muscleName(c.top)}` : ''}{c.custom ? ' · własne' : ''}</span>
           </button>
         ))}
@@ -557,6 +564,52 @@ function ViewScreen({ st, update, id, go }: P & { id: string }) {
   );
 }
 
+// ====================================================================== Zdjęcia offline
+/** Zdjęcia zapamiętują się same po pierwszym obejrzeniu. Ten przycisk pobiera wszystkie naraz (ok. 22 MB), żeby działały bez internetu. */
+function PhotoDownload() {
+  const [state, setState] = useState<{ phase: 'idle' | 'run' | 'done' | 'error'; done: number; total: number; msg?: string }>({ phase: 'idle', done: 0, total: 0 });
+  const [cached, setCached] = useState<number | null>(null);
+  const stop = useRef(false);
+  useEffect(() => {
+    if (!('caches' in window)) return;
+    caches.open('atlas-img').then(c => c.keys()).then(k => setCached(k.length)).catch(() => {});
+  }, [state.phase]);
+  useEffect(() => () => { stop.current = true; }, []); // wyjście z ekranu przerywa pobieranie
+  const ids = CATALOG.filter(c => c.img).map(c => c.id);
+  const files = ids.flatMap(id => [imgUrl(id, 't'), imgUrl(id, '0'), imgUrl(id, '1')]);
+  const run = async () => {
+    if (!('caches' in window) || !navigator.serviceWorker?.controller) { setState({ phase: 'error', done: 0, total: 0, msg: 'Pobieranie działa w zainstalowanej aplikacji (z ikony na ekranie), przy włączonym internecie.' }); return; }
+    stop.current = false;
+    let done = 0, failed = 0;
+    setState({ phase: 'run', done, total: files.length });
+    const queue = [...files];
+    const cache = await caches.open('atlas-img');
+    const worker = async () => {
+      while (queue.length && !stop.current) {
+        const f = queue.shift()!;
+        try {
+          if (!(await cache.match(f))) { const r = await fetch(f, { cache: 'no-store' }); if (r.ok) await cache.put(f, r); else failed++; }
+        } catch { failed++; }
+        done++; if (done % 15 === 0 || done === files.length) setState(s => ({ ...s, done }));
+      }
+    };
+    await Promise.all(Array.from({ length: 6 }, worker));
+    setState(failed ? { phase: 'error', done, total: files.length, msg: `Nie udało się pobrać ${failed} plików – sprawdź internet i spróbuj ponownie (pobrane zostaną tylko brakujące).` } : { phase: 'done', done, total: files.length });
+  };
+  return (
+    <section className="p-sec">
+      <h2>Zdjęcia ćwiczeń</h2>
+      <p className="p-note">Stuknij miniaturę przy ćwiczeniu w trakcie treningu, żeby zobaczyć ruch (pozycja początkowa i końcowa). Zdjęcia zapamiętują się po pierwszym obejrzeniu. Żeby wszystkie działały bez internetu, pobierz je teraz (ok. 22 MB, najlepiej przez Wi-Fi).</p>
+      {cached != null && <p className="p-note">W telefonie: {cached} z {files.length} plików.</p>}
+      {state.phase === 'run'
+        ? <><i className="meter" style={{ ['--w' as any]: `${(state.done / state.total) * 100}%` }} /><p className="p-note">Pobieranie: {state.done} z {state.total}…</p></>
+        : <button className="p-btn wide" onClick={run}>{state.phase === 'done' ? 'Pobrano – sprawdź ponownie' : 'Pobierz wszystkie zdjęcia (ok. 22 MB)'}</button>}
+      {state.phase === 'done' && <p className="p-note ok">Gotowe – zdjęcia działają teraz bez internetu.</p>}
+      {state.phase === 'error' && <p className="p-note" style={{ color: 'var(--hot)' }}>{state.msg}</p>}
+    </section>
+  );
+}
+
 // ====================================================================== Ustawienia
 function SettingsScreen({ st, update, go }: P) {
   const s = st.settings;
@@ -581,6 +634,7 @@ function SettingsScreen({ st, update, go }: P) {
             ? 'Sygnał działa przy włączonym ekranie i otwartej aplikacji. W trakcie treningu aplikacja nie pozwala ekranowi zgasnąć. Jeśli telefon Xiaomi zamyka aplikację w tle: Ustawienia → Aplikacje → Chrome → Oszczędzanie baterii → Bez ograniczeń.'
             : 'Dźwięk gra tylko przy włączonym ekranie i otwartej aplikacji (ograniczenie iOS; iPhone nie pozwala też stronom na wibrację). W trakcie treningu aplikacja nie pozwala ekranowi zgasnąć. Wyciszenie telefonu przełącznikiem z boku też wycisza dźwięk.'}</p>
         </section>
+        <PhotoDownload />
         <section className="p-sec">
           <h2>Dane w telefonie</h2>
           <p className="p-note">Treningów zapisanych w telefonie: {st.history.length} (w tym niewysłanych: {st.history.filter(w => !w.sentAt).length}). Telefon trzyma ostatnie 60. Usunięcie aplikacji z ekranu początkowego kasuje jej dane – wysyłaj treningi do komputera na bieżąco.</p>

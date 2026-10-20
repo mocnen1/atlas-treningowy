@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStore } from '../store/store';
 import { Dialog, ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, useFilteredExercises } from '../ui/common';
 import { ExerciseEditor } from './ExerciseEditor';
+import { ExerciseAnim } from '../shared/ExerciseImage';
 
 export function ExercisePicker(p: { profileId: string; onClose: () => void; onAdd: (ids: string[]) => void }) {
   const { db, exercises, lookup } = useStore();
@@ -42,6 +43,7 @@ export function ExercisePicker(p: { profileId: string; onClose: () => void; onAd
             <div className="eyebrow">{pv.equipmentPl} · {pv.weightsSource}</div>
             <h3 style={{ fontSize: 16 }}>{pv.name}</h3>
             <div className="muted" style={{ fontSize: 12 }}>{pv.nameEn}</div>
+            {pv.hasImg && <ExerciseAnim id={pv.id} alt={pv.name} />}
             <MuscleBars weights={pv.muscles} />
           </> : <p className="note">Tu zobaczysz, które mięśnie pracują w klikniętym ćwiczeniu.</p>}
         </div>
