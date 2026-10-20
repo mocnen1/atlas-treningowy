@@ -14,6 +14,18 @@ import { PhoneApp } from './PhoneApp';
 createRoot(document.getElementById('root')!).render(<StrictMode><PhoneApp /></StrictMode>);
 
 // Praca bez internetu: service worker trzyma kopię aplikacji w telefonie.
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('./sw.js').catch(() => { /* bez trybu offline */ });
+// Aktualizacje: sprawdzamy przy każdym powrocie do aplikacji; gdy nowa wersja przejmie stronę, aplikacja dostaje zdarzenie 'atlas-update'.
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
+    const check = () => reg.update().catch(() => { /* brak internetu */ });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+    setInterval(check, 30 * 60_000);
+  }).catch(() => { /* bez trybu offline */ });
+  let fired = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || fired) return; // pierwsza instalacja – nie ma czego odświeżać
+    fired = true;
+    window.dispatchEvent(new Event('atlas-update'));
+  });
 }

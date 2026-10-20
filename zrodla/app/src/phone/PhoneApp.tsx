@@ -53,12 +53,20 @@ export function PhoneApp() {
   const [saveFailed, setSaveFailed] = useState(false);
   const update = useCallback((fn: (s: PhoneState) => PhoneState) => setSt(prev => { const n = fn(prev); setSaveFailed(!saveState(n)); return n; }), []);
   useEffect(() => { (navigator as any).storage?.persist?.().catch(() => {}); }, []);
+  // Nowa wersja aplikacji: bez treningu w toku przeładowujemy od razu (dane są w pamięci telefonu), w trakcie treningu – pytamy.
+  const [updateReady, setUpdateReady] = useState(false);
+  const activeRef = useRef(st.active); activeRef.current = st.active;
+  useEffect(() => {
+    const on = () => { if (!activeRef.current) location.reload(); else setUpdateReady(true); };
+    window.addEventListener('atlas-update', on); return () => window.removeEventListener('atlas-update', on);
+  }, []);
   useEffect(() => { window.scrollTo(0, 0); }, [screen.s]);
 
   const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
 
   return (
     <div className="p-app">
+      {updateReady && <div className="p-banner p-update">Dostępna nowa wersja aplikacji. <button className="p-btn sm primary" onClick={() => location.reload()}>Uruchom ponownie</button><span>Trening w toku zostanie zachowany.</span></div>}
       {saveFailed && <div className="p-banner err">Nie udało się zapisać danych w telefonie. Wyślij treningi do komputera, zanim zamkniesz aplikację.</div>}
       {screen.s === 'home' && <Home st={st} update={update} go={setScreen} standalone={standalone} />}
       {screen.s === 'workout' && st.active && <WorkoutScreen st={st} update={update} go={setScreen} />}
@@ -136,6 +144,7 @@ function Home({ st, update, go, standalone }: P & { standalone: boolean }) {
             {sent.map(w => <WorkoutRow key={w.id} st={st} w={w} onClick={() => go({ s: 'view', id: w.id })} />)}
           </section>
         )}
+        <p className="p-note p-ver">Wersja {__APP_VERSION__}</p>
       </main>
     </>
   );
