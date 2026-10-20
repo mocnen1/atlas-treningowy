@@ -1,0 +1,525 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { QrScanner, QrSender } from '../shared/qr';
+import { Kind, bundleToFile, type PcBundle } from '../shared/transfer';
+import {
+  CATALOG, applyPcBundle, estSetSec, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
+  phoneBundle, saveState, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
+} from './state';
+
+type Screen = { s: 'home' } | { s: 'workout' } | { s: 'send'; ids: string[] } | { s: 'receive' } | { s: 'settings' } | { s: 'view'; id: string };
+
+// ---------- Dźwięk końca przerwy (Web Audio, planowany z wyprzedzeniem – dokładny co do sekundy przy włączonym ekranie)
+let audio: AudioContext | null = null;
+let pending: OscillatorNode[] = [];
+function unlockAudio() {
+  try { audio ??= new AudioContext(); if (audio.state === 'suspended') audio.resume(); } catch { /* brak dźwięku */ }
+}
+function scheduleBeep(inSec: number) {
+  cancelBeep();
+  if (!audio) return;
+  for (const [off, f] of [[0, 880], [0.25, 880], [0.5, 1320]] as const) {
+    const o = audio.createOscillator(), g = audio.createGain();
+    const t = audio.currentTime + Math.max(0, inSec) + off;
+    o.frequency.value = f; o.type = 'sine';
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.2);
+    pending.push(o);
+  }
+}
+function cancelBeep() { for (const o of pending) { try { o.stop(); } catch { /* już zagrał */ } } pending = []; }
+
+function useNow(active: boolean, ms = 1000) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { if (!active) return; const t = setInterval(() => setNow(Date.now()), ms); return () => clearInterval(t); }, [active, ms]);
+  return now;
+}
+
+/** Ekran nie gaśnie w trakcie treningu (iOS 18.4+ również w aplikacji z ekranu początkowego). */
+function useWakeLock(on: boolean) {
+  useEffect(() => {
+    if (!on || !('wakeLock' in navigator)) return;
+    let lock: any = null, dead = false;
+    const req = () => (navigator as any).wakeLock.request('screen').then((l: any) => { if (dead) l.release(); else lock = l; }).catch(() => {});
+    const vis = () => { if (document.visibilityState === 'visible') req(); };
+    req(); document.addEventListener('visibilitychange', vis);
+    return () => { dead = true; document.removeEventListener('visibilitychange', vis); lock?.release?.(); };
+  }, [on]);
+}
+
+export function PhoneApp() {
+  const [st, setSt] = useState<PhoneState>(loadState);
+  const [screen, setScreen] = useState<Screen>(() => (loadState().active ? { s: 'workout' } : { s: 'home' }));
+  const [saveFailed, setSaveFailed] = useState(false);
+  const update = useCallback((fn: (s: PhoneState) => PhoneState) => setSt(prev => { const n = fn(prev); setSaveFailed(!saveState(n)); return n; }), []);
+  useEffect(() => { (navigator as any).storage?.persist?.().catch(() => {}); }, []);
+  useEffect(() => { window.scrollTo(0, 0); }, [screen.s]);
+
+  const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+
+  return (
+    <div className="p-app">
+      {saveFailed && <div className="p-banner err">Nie udało się zapisać danych w telefonie. Wyślij treningi do komputera, zanim zamkniesz aplikację.</div>}
+      {screen.s === 'home' && <Home st={st} update={update} go={setScreen} standalone={standalone} />}
+      {screen.s === 'workout' && st.active && <WorkoutScreen st={st} update={update} go={setScreen} />}
+      {screen.s === 'workout' && !st.active && <Home st={st} update={update} go={setScreen} standalone={standalone} />}
+      {screen.s === 'send' && <SendScreen st={st} update={update} ids={screen.ids} go={setScreen} />}
+      {screen.s === 'receive' && <ReceiveScreen update={update} go={setScreen} />}
+      {screen.s === 'settings' && <SettingsScreen st={st} update={update} go={setScreen} />}
+      {screen.s === 'view' && <ViewScreen st={st} update={update} id={screen.id} go={setScreen} />}
+    </div>
+  );
+}
+
+type P = { st: PhoneState; update: (fn: (s: PhoneState) => PhoneState) => void; go: (s: Screen) => void };
+
+// ====================================================================== Ekran główny
+function Home({ st, update, go, standalone }: P & { standalone: boolean }) {
+  const now = useNow(!!st.active, 10_000);
+  const unsent = st.history.filter(w => !w.sentAt);
+  const sent = st.history.filter(w => w.sentAt).slice(0, 15);
+  const start = (planIdx: number | null) => {
+    unlockAudio();
+    update(s => ({ ...s, active: startWorkout(s, planIdx == null ? null : s.plans[planIdx]), rest: null }));
+    go({ s: 'workout' });
+  };
+  return (
+    <>
+      <header className="p-head">
+        <div className="p-brand">Atlas <span>Treningowy</span></div>
+        <button className="p-icon" onClick={() => go({ s: 'settings' })} aria-label="Ustawienia">⚙</button>
+      </header>
+      <main className="p-main">
+        {!standalone && (
+          <div className="p-banner">
+            <b>Zainstaluj aplikację na ekranie początkowym.</b> Stuknij <b>Udostępnij</b> (kwadrat ze strzałką) → <b>Do ekranu początkowego</b>. Dopiero wtedy działa bez internetu, a dane nie znikną przy czyszczeniu Safari.
+          </div>
+        )}
+        {st.active ? (
+          <button className="p-card p-live" onClick={() => go({ s: 'workout' })}>
+            <span className="p-eyebrow">Trening w toku</span>
+            <b>{st.active.name || 'Trening'}</b>
+            <span>{fmtClock((now - st.active.startedAt) / 1000)} · {st.active.exercises.reduce((a, e) => a + e.sets.filter(x => x.doneAt).length, 0)} serii zrobionych</span>
+            <span className="p-go">Wróć do treningu →</span>
+          </button>
+        ) : (
+          <section className="p-sec">
+            <h2>Zacznij trening</h2>
+            {st.plans.map((p, i) => (
+              <button key={p.id} className="p-card p-plan" onClick={() => start(i)}>
+                <b>{p.name}</b>
+                <span>{p.exercises.length} ćwiczeń · {p.exercises.map(e => lookupExercise(st, e.exerciseId)?.name ?? '?').slice(0, 3).join(', ')}{p.exercises.length > 3 ? '…' : ''}</span>
+              </button>
+            ))}
+            <button className="p-btn wide" onClick={() => start(null)}>Pusty trening</button>
+            {!st.plans.length && <p className="p-note">Plany treningowe układasz na komputerze i przesyłasz przyciskiem „Odbierz plany z komputera”.</p>}
+          </section>
+        )}
+
+        {unsent.length > 0 && (
+          <section className="p-sec">
+            <h2>Do wysłania na komputer <span className="p-count">{unsent.length}</span></h2>
+            {unsent.map(w => <WorkoutRow key={w.id} st={st} w={w} onClick={() => go({ s: 'view', id: w.id })} />)}
+            <button className="p-btn primary wide" onClick={() => go({ s: 'send', ids: unsent.map(w => w.id) })}>Wyślij {unsent.length > 1 ? `wszystkie (${unsent.length})` : ''} do komputera</button>
+          </section>
+        )}
+
+        <section className="p-sec">
+          <h2>Komputer</h2>
+          <button className="p-btn wide" onClick={() => go({ s: 'receive' })}>Odbierz plany z komputera</button>
+          <p className="p-note">{st.receivedAt ? `Ostatnio odebrano: ${fmtDateTime(Date.parse(st.receivedAt))}${st.profile ? ` · profil ${st.profile}` : ''}.` : 'Jeszcze nic nie odebrano.'}</p>
+        </section>
+
+        {sent.length > 0 && (
+          <section className="p-sec">
+            <h2>Wysłane</h2>
+            {sent.map(w => <WorkoutRow key={w.id} st={st} w={w} onClick={() => go({ s: 'view', id: w.id })} />)}
+          </section>
+        )}
+      </main>
+    </>
+  );
+}
+
+function WorkoutRow({ st, w, onClick }: { st: PhoneState; w: PWorkout; onClick: () => void }) {
+  const sets = w.exercises.reduce((a, e) => a + e.sets.filter(x => x.doneAt && !x.warmup).length, 0);
+  return (
+    <button className="p-row" onClick={onClick}>
+      <span className="p-row-d"><b>{new Date(w.startedAt).getDate()}</b>{new Date(w.startedAt).toLocaleDateString('pl-PL', { month: 'short' })}</span>
+      <span className="p-row-b">
+        <b>{w.name || w.exercises.map(e => lookupExercise(st, e.exerciseId)?.name).filter(Boolean).slice(0, 2).join(', ') || 'Trening'}</b>
+        <span>{w.exercises.length} ćw. · {sets} serii · {fmtClock(((w.endedAt ?? w.startedAt) - w.startedAt) / 1000)}</span>
+      </span>
+      <span className={`p-tag ${w.sentAt ? 'ok' : 'warn'}`}>{w.sentAt ? 'wysłany' : 'niewysłany'}</span>
+    </button>
+  );
+}
+
+// ====================================================================== Trening
+function WorkoutScreen({ st, update, go }: P) {
+  const w = st.active!;
+  const now = useNow(true, 500);
+  const [picker, setPicker] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const [openSet, setOpenSet] = useState<string | null>(null);
+  useWakeLock(true);
+
+  const setW = (fn: (w: PWorkout) => PWorkout) => update(s => ({ ...s, active: s.active ? fn(s.active) : s.active }));
+  const setEx = (exId: string, fn: (e: PExercise) => PExercise) => setW(w => ({ ...w, exercises: w.exercises.map(e => (e.id === exId ? fn(e) : e)) }));
+  // Zmiana ciężaru/powtórzeń przenosi się na kolejne nieodhaczone serie, które miały tę samą wartość (typowo wszystkie serie robocze są takie same).
+  const setSet = (exId: string, setId: string, patch: Partial<PSet>) => setEx(exId, e => {
+    const i = e.sets.findIndex(x => x.id === setId);
+    if (i < 0) return e;
+    const old = e.sets[i];
+    return { ...e, sets: e.sets.map((x, k) => {
+      if (k === i) return { ...x, ...patch };
+      if (k < i || x.doneAt || x.warmup !== old.warmup) return x;
+      const c: Partial<PSet> = {};
+      for (const key of ['kg', 'reps', 'dur'] as const) if (key in patch && x[key] === old[key]) (c as any)[key] = patch[key];
+      return { ...x, ...c };
+    }) };
+  });
+
+  const tick = (ex: PExercise, set: PSet) => {
+    unlockAudio();
+    const t = Date.now();
+    update(s => {
+      if (!s.active) return s;
+      let rest = s.rest;
+      const exercises = s.active.exercises.map(e => ({ ...e, sets: e.sets.map(x => ({ ...x })) }));
+      const find = (id: string) => { for (const e of exercises) for (const x of e.sets) if (x.id === id) return x; return null; };
+      const target = find(set.id)!;
+      if (target.doneAt) {
+        target.doneAt = null; target.restSec = null;
+        if (rest?.setId === set.id) { rest = null; cancelBeep(); }
+      } else {
+        // Przerwa po poprzedniej serii, jeśli nie zatrzymano jej przyciskiem: od odhaczenia do odhaczenia minus szacowany czas serii
+        if (rest) { const prev = find(rest.setId); if (prev && prev.restSec == null) prev.restSec = Math.max(0, Math.round((t - rest.from) / 1000 - estSetSec(target))); }
+        target.doneAt = t;
+        const restTarget = ex.restSec ?? s.settings.defaultRest;
+        rest = { setId: set.id, from: t, target: restTarget };
+        if (s.settings.sound) scheduleBeep(restTarget); else cancelBeep();
+      }
+      return { ...s, rest, active: { ...s.active, exercises } };
+    });
+  };
+
+  const startSet = () => {
+    update(s => {
+      if (!s.rest || !s.active) return s;
+      const sec = Math.round((Date.now() - s.rest.from) / 1000);
+      const exercises = s.active.exercises.map(e => ({ ...e, sets: e.sets.map(x => (x.id === s.rest!.setId ? { ...x, restSec: sec } : x)) }));
+      return { ...s, rest: null, active: { ...s.active, exercises } };
+    });
+    cancelBeep();
+  };
+
+  const finish = () => {
+    cancelBeep();
+    const id = w.id;
+    update(s => {
+      if (!s.active) return s;
+      const done: PWorkout = { ...s.active, endedAt: Date.now() };
+      return { ...s, active: null, rest: null, last: updateLast(s.last, done), history: [done, ...s.history].slice(0, 60) };
+    });
+    go({ s: 'send', ids: [id] });
+  };
+  const discard = () => { cancelBeep(); update(s => ({ ...s, active: null, rest: null })); go({ s: 'home' }); };
+
+  const doneSets = w.exercises.reduce((a, e) => a + e.sets.filter(x => x.doneAt).length, 0);
+  const rest = st.rest;
+  const restSec = rest ? (now - rest.from) / 1000 : 0;
+
+  return (
+    <>
+      <header className="p-head sticky">
+        <button className="p-icon" onClick={() => go({ s: 'home' })} aria-label="Ekran główny">‹</button>
+        <div className="p-wt">
+          <input className="p-title-in" value={w.name} placeholder="Trening" onChange={e => setW(x => ({ ...x, name: e.target.value }))} aria-label="Nazwa treningu" />
+          <span className="p-clock">{fmtClock((now - w.startedAt) / 1000)}</span>
+        </div>
+        <button className="p-btn primary sm" onClick={() => setFinishing(true)}>Zakończ</button>
+      </header>
+      <main className={`p-main ${rest ? 'with-rest' : ''}`}>
+        {finishing && (
+          <div className="p-confirm">
+            <b>Zakończyć trening?</b>
+            <span>{doneSets ? `${doneSets} odhaczonych serii zostanie zapisanych. Nieodhaczone serie są pomijane.` : 'Nie odhaczyłeś żadnej serii.'}</span>
+            <div className="p-confirm-row">
+              {doneSets > 0 && <button className="p-btn primary" onClick={finish}>Zakończ i zapisz</button>}
+              <button className="p-btn" onClick={() => setFinishing(false)}>Wróć</button>
+              <button className="p-btn danger" onClick={discard}>Odrzuć trening</button>
+            </div>
+          </div>
+        )}
+
+        {w.exercises.map((e, ei) => {
+          const ex = lookupExercise(st, e.exerciseId);
+          const last = st.last[e.exerciseId];
+          let n = 0;
+          return (
+            <section className="p-ex" key={e.id}>
+              <div className="p-ex-head">
+                <div>
+                  <h3>{ex?.name ?? e.exerciseId}</h3>
+                  <span className="p-sub">
+                    {e.repsMin != null || e.repsMax != null ? `Plan: ${e.sets.length} × ${e.repsMin ?? ''}${e.repsMax && e.repsMax !== e.repsMin ? '–' + e.repsMax : ''}` : ex?.eq}
+                    {' · przerwa '}{fmtClock(e.restSec ?? st.settings.defaultRest)}
+                  </span>
+                  {last && <span className="p-sub">Ostatnio: <b>{last[1] != null ? `${fmtKg(last[1])} kg × ` : ''}{last[2] ?? '–'}</b> ({fmtDay(last[0])})</span>}
+                  {e.notes && <span className="p-sub">{e.notes}</span>}
+                </div>
+                <ExMenu onUp={ei > 0 ? () => setW(x => { const a = [...x.exercises]; [a[ei - 1], a[ei]] = [a[ei], a[ei - 1]]; return { ...x, exercises: a }; }) : undefined}
+                  onRemove={() => setW(x => ({ ...x, exercises: x.exercises.filter(y => y.id !== e.id) }))} />
+              </div>
+              <div className="p-sets">
+                <div className="p-sets-h"><span>Seria</span><span>kg</span><span>Powt.</span><span /></div>
+                {e.sets.map(x => {
+                  if (!x.warmup) n++;
+                  const open = openSet === x.id;
+                  return (
+                    <div key={x.id} className={`p-set ${x.doneAt ? 'done' : ''} ${x.warmup ? 'warm' : ''}`}>
+                      <button className="p-setn" onClick={() => setOpenSet(open ? null : x.id)} aria-label="Opcje serii">{x.warmup ? 'R' : n}<i>⋯</i></button>
+                      <Stepper value={x.kg} step={st.settings.kgStep} decimals onChange={v => setSet(e.id, x.id, { kg: v })} label="Ciężar" />
+                      <Stepper value={x.dur != null && x.reps == null ? x.dur : x.reps} step={x.dur != null && x.reps == null ? 5 : 1}
+                        onChange={v => setSet(e.id, x.id, x.dur != null && x.reps == null ? { dur: v } : { reps: v })} label={x.dur != null && x.reps == null ? 'Czas (s)' : 'Powtórzenia'} suffix={x.dur != null && x.reps == null ? 's' : ''} />
+                      <button className={`p-check ${x.doneAt ? 'on' : ''}`} onClick={() => tick(e, x)} aria-label={x.doneAt ? 'Cofnij odhaczenie' : 'Odhacz serię'}>✓</button>
+                      {open && (
+                        <div className="p-set-more">
+                          <button className={`p-chip ${x.warmup ? 'on' : ''}`} onClick={() => setSet(e.id, x.id, { warmup: !x.warmup })}>Rozgrzewkowa</button>
+                          <button className={`p-chip ${x.dur != null && x.reps == null ? 'on' : ''}`} onClick={() => setSet(e.id, x.id, x.dur != null && x.reps == null ? { dur: null, reps: 8 } : { dur: 30, reps: null })}>Na czas</button>
+                          <span className="p-rpe">RPE {[7, 8, 9, 10].map(r => <button key={r} className={`p-chip ${x.rpe === r ? 'on' : ''}`} onClick={() => setSet(e.id, x.id, { rpe: x.rpe === r ? null : r })}>{r}</button>)}</span>
+                          {x.restSec != null && <span className="p-sub">przerwa po serii: {fmtClock(x.restSec)}</span>}
+                          <button className="p-chip danger" onClick={() => { setEx(e.id, y => ({ ...y, sets: y.sets.filter(z => z.id !== x.id) })); setOpenSet(null); }}>Usuń serię</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <button className="p-add" onClick={() => setEx(e.id, y => { const l = y.sets[y.sets.length - 1]; return { ...y, sets: [...y.sets, l ? { ...l, id: uid(), doneAt: null, restSec: null, warmup: false } : newExercise(st, y.exerciseId).sets[0]] }; })}>+ Seria</button>
+            </section>
+          );
+        })}
+
+        <button className="p-btn wide" onClick={() => setPicker(true)}>+ Dodaj ćwiczenie</button>
+        <textarea className="p-notes" placeholder="Notatki do treningu (samopoczucie, sen…)" value={w.notes} onChange={e => setW(x => ({ ...x, notes: e.target.value }))} />
+      </main>
+
+      {rest && (
+        <div className={`p-rest ${restSec >= rest.target ? 'over' : ''}`}>
+          <div className="p-rest-bar"><i style={{ width: `${Math.min(100, (restSec / rest.target) * 100)}%` }} /></div>
+          <div className="p-rest-row">
+            <div className="p-rest-t"><span>Przerwa</span><b>{fmtClock(restSec)}</b><span>/ {fmtClock(rest.target)}</span></div>
+            <button className="p-btn sm" onClick={() => update(s => { if (!s.rest) return s; const target = s.rest.target + 30; if (s.settings.sound) scheduleBeep(target - (Date.now() - s.rest.from) / 1000); return { ...s, rest: { ...s.rest, target } }; })}>+30 s</button>
+            <button className="p-btn primary" onClick={startSet}>Zaczynam serię</button>
+          </div>
+        </div>
+      )}
+
+      {picker && <ExercisePicker st={st} onClose={() => setPicker(false)} onPick={(id, custom) => {
+        update(s => {
+          const s2 = custom ? { ...s, custom: [...s.custom, custom] } : s;
+          return { ...s2, active: s2.active ? { ...s2.active, exercises: [...s2.active.exercises, newExercise(s2, id)] } : s2.active };
+        });
+        setPicker(false);
+        setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 50);
+      }} />}
+    </>
+  );
+}
+
+function ExMenu({ onUp, onRemove }: { onUp?: () => void; onRemove: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [ask, setAsk] = useState(false);
+  return (
+    <div className="p-exmenu">
+      <button className="p-icon" onClick={() => { setOpen(o => !o); setAsk(false); }} aria-label="Opcje ćwiczenia">⋯</button>
+      {open && (
+        <div className="p-pop">
+          {onUp && <button onClick={() => { onUp(); setOpen(false); }}>Przesuń wyżej</button>}
+          {ask ? <button className="danger" onClick={onRemove}>Na pewno usunąć?</button> : <button className="danger" onClick={() => setAsk(true)}>Usuń ćwiczenie</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stepper({ value, step, onChange, label, decimals, suffix }: { value: number | null; step: number; onChange: (v: number | null) => void; label: string; decimals?: boolean; suffix?: string }) {
+  const [edit, setEdit] = useState(false);
+  const [text, setText] = useState('');
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (edit) { ref.current?.focus(); ref.current?.select(); } }, [edit]);
+  const commit = () => {
+    const t = text.trim().replace(',', '.');
+    const n = t === '' ? null : Number(t);
+    if (n === null || (Number.isFinite(n) && n >= 0)) onChange(n == null ? null : decimals ? Math.round(n * 100) / 100 : Math.round(n));
+    setEdit(false);
+  };
+  const bump = (d: number) => onChange(Math.max(0, Math.round(((value ?? 0) + d) * 100) / 100));
+  return (
+    <div className="p-step" aria-label={label}>
+      <button onClick={() => bump(-step)} aria-label={`${label} mniej`}>−</button>
+      {edit
+        ? <input ref={ref} inputMode={decimals ? 'decimal' : 'numeric'} value={text} onChange={e => setText(e.target.value)} onBlur={commit} onKeyDown={e => e.key === 'Enter' && commit()} aria-label={label} />
+        : <span role="button" tabIndex={0} onClick={() => { setText(value == null ? '' : String(value).replace('.', ',')); setEdit(true); }}>{value == null ? '–' : fmtKg(value)}{suffix && value != null ? suffix : ''}</span>}
+      <button onClick={() => bump(step)} aria-label={`${label} więcej`}>+</button>
+    </div>
+  );
+}
+
+function ExercisePicker({ st, onClose, onPick }: { st: PhoneState; onClose: () => void; onPick: (id: string, custom?: PhoneState['custom'][number]) => void }) {
+  const [q, setQ] = useState('');
+  const recent = useMemo(() => {
+    const ids: string[] = [];
+    for (const w of st.history) for (const e of w.exercises) if (!ids.includes(e.exerciseId)) ids.push(e.exerciseId);
+    for (const id of Object.keys(st.last)) if (!ids.includes(id)) ids.push(id);
+    return ids;
+  }, [st.history, st.last]);
+  const all = useMemo(() => [...st.custom.map(c => lookupExercise(st, c.id)!), ...CATALOG.filter(c => c.vol)], [st]);
+  const list = useMemo(() => {
+    const t = norm(q.trim());
+    if (!t) return recent.map(id => lookupExercise(st, id)).filter(Boolean).slice(0, 30) as typeof all;
+    const score = (c: typeof all[number]) => (norm(c.name).startsWith(t) ? 0 : norm(c.name).includes(' ' + t) ? 1 : 2) * 2 + (c.verified ? 0 : 1);
+    return all.filter(c => norm(c.name).includes(t) || norm(c.nameEn).includes(t))
+      .sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name, 'pl')).slice(0, 60);
+  }, [q, all, recent, st]);
+  const exact = list.some(c => norm(c.name) === norm(q.trim()));
+  return (
+    <div className="p-sheet" role="dialog" aria-label="Dodaj ćwiczenie">
+      <div className="p-sheet-head">
+        <input autoFocus className="p-search" placeholder="Szukaj (np. wiosłowanie, bench)" value={q} onChange={e => setQ(e.target.value)} aria-label="Szukaj ćwiczenia" />
+        <button className="p-btn sm" onClick={onClose}>Anuluj</button>
+      </div>
+      <div className="p-sheet-body">
+        {!q && <p className="p-note">{recent.length ? 'Ostatnio wykonywane:' : 'Wpisz nazwę ćwiczenia po polsku lub angielsku.'}</p>}
+        {list.map(c => (
+          <button key={c.id} className="p-pick" onClick={() => onPick(c.id)}>
+            <b>{c.name}</b><span>{c.eq}{c.top ? ` · ${muscleName(c.top)}` : ''}{c.custom ? ' · własne' : ''}</span>
+          </button>
+        ))}
+        {q.trim().length >= 3 && !exact && (
+          <button className="p-pick add" onClick={() => { const c = { id: 'C_' + uid(), name: q.trim(), eq: 'inne', vol: true, top: null, local: true }; onPick(c.id, c); }}>
+            <b>+ Dodaj własne: „{q.trim()}”</b><span>Mięśnie ustawisz na komputerze po przesłaniu treningu.</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ====================================================================== Wysyłanie
+function SendScreen({ st, update, ids, go }: P & { ids: string[] }) {
+  const ws = st.history.filter(w => ids.includes(w.id));
+  const bundle = useMemo(() => phoneBundle(st, ws), [ids.join(), st.custom]);
+  const [shared, setShared] = useState<string | null>(null);
+  const empty = bundle.workouts.length === 0;
+  const markSent = () => { update(s => ({ ...s, history: s.history.map(w => (ids.includes(w.id) ? { ...w, sentAt: Date.now() } : w)) })); go({ s: 'home' }); };
+  const share = async () => {
+    const name = `atlas-trening-${new Date().toISOString().slice(0, 10)}.json`;
+    const file = new File([bundleToFile(bundle)], name, { type: 'application/json' });
+    try {
+      if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: 'Trening – Atlas Treningowy' }); setShared('Plik udostępniony. Na komputerze: zakładka Telefon → „Wybierz plik z telefonu”.'); return; }
+    } catch (e: any) { if (e?.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.click();
+    setShared('Plik zapisany w Pobranych.');
+  };
+  return (
+    <>
+      <header className="p-head"><button className="p-icon" onClick={() => go({ s: 'home' })} aria-label="Wróć">‹</button><div className="p-wt"><b>Wyślij do komputera</b></div><span /></header>
+      <main className="p-main">
+        {empty ? <p className="p-note">Ten trening nie ma odhaczonych serii – nie ma czego wysłać.</p> : <>
+          <p className="p-note">Na komputerze: zakładka <b>Telefon → Włącz kamerkę i skanuj</b>. Podkręć jasność, trzymaj telefon ok. 30–40 cm od kamerki. Kody zmieniają się same – trzymaj, aż komputer pokaże „Odebrano”.</p>
+          <div className="p-qr"><QrSender bundle={bundle} size={340} interval={650} /></div>
+          <p className="p-note">{bundle.workouts.length} {bundle.workouts.length === 1 ? 'trening' : 'treningi'} · {bundle.workouts.reduce((a, w) => a + w.exercises.reduce((b, e) => b + e.sets.length, 0), 0)} serii</p>
+          <button className="p-btn primary wide" onClick={markSent}>Komputer odebrał – oznacz jako wysłane</button>
+          <button className="p-btn wide" onClick={share}>Kamerka nie łapie? Udostępnij jako plik</button>
+          {shared && <p className="p-note ok">{shared}</p>}
+          <p className="p-note">Wysłanie tego samego treningu drugi raz nic nie zdubluje – komputer rozpozna go po identyfikatorze.</p>
+        </>}
+      </main>
+    </>
+  );
+}
+
+// ====================================================================== Odbiór planów
+function ReceiveScreen({ update, go }: Omit<P, 'st'>) {
+  const [got, setGot] = useState<PcBundle | null>(null);
+  return (
+    <>
+      <header className="p-head"><button className="p-icon" onClick={() => go({ s: 'home' })} aria-label="Wróć">‹</button><div className="p-wt"><b>Odbierz z komputera</b></div><span /></header>
+      <main className="p-main">
+        {got ? (
+          <div className="p-card">
+            <span className="p-eyebrow">Odebrano · profil {got.profile}</span>
+            <b>{got.plans.length} {got.plans.length === 1 ? 'plan' : 'planów'}, {Object.keys(got.last).length} ostatnich wyników</b>
+            <span>{got.plans.map(p => p.name).join(', ') || 'bez planów'}</span>
+            <button className="p-btn primary wide" onClick={() => go({ s: 'home' })}>Gotowe</button>
+          </div>
+        ) : <>
+          <p className="p-note">Na komputerze: zakładka <b>Telefon → Wyślij plany na telefon → Pokaż kody QR</b>. Skieruj aparat na ekran i trzymaj, aż odbierze wszystkie kody.</p>
+          <QrScanner expect={Kind.PcPlans} facing="environment" onDone={b => { if (b.k === 'plans') { update(s => applyPcBundle(s, b)); setGot(b); } }} />
+        </>}
+      </main>
+    </>
+  );
+}
+
+// ====================================================================== Podgląd zakończonego treningu
+function ViewScreen({ st, update, id, go }: P & { id: string }) {
+  const w = st.history.find(x => x.id === id);
+  const [ask, setAsk] = useState(false);
+  if (!w) return <Home st={st} update={update} go={go} standalone />;
+  return (
+    <>
+      <header className="p-head"><button className="p-icon" onClick={() => go({ s: 'home' })} aria-label="Wróć">‹</button><div className="p-wt"><b>{w.name || 'Trening'}</b><span className="p-clock">{fmtDateTime(w.startedAt)}</span></div><span /></header>
+      <main className="p-main">
+        {w.exercises.map(e => {
+          const done = e.sets.filter(x => x.doneAt);
+          if (!done.length) return null;
+          return (
+            <section className="p-ex" key={e.id}>
+              <h3>{lookupExercise(st, e.exerciseId)?.name ?? e.exerciseId}</h3>
+              <div className="p-done-list">{done.map((x, i) => <span key={i} className={x.warmup ? 'warm' : ''}>{x.kg != null ? `${fmtKg(x.kg)} kg × ` : ''}{x.reps ?? (x.dur != null ? `${x.dur} s` : '–')}{x.rpe ? ` @${x.rpe}` : ''}</span>)}</div>
+            </section>
+          );
+        })}
+        <button className="p-btn primary wide" onClick={() => go({ s: 'send', ids: [w.id] })}>{w.sentAt ? 'Wyślij ponownie' : 'Wyślij do komputera'}</button>
+        {ask ? <button className="p-btn danger wide" onClick={() => { update(s => ({ ...s, history: s.history.filter(x => x.id !== id) })); go({ s: 'home' }); }}>{w.sentAt ? 'Usuń z telefonu' : 'Niewysłany! Usunąć mimo to?'}</button>
+          : <button className="p-btn wide" onClick={() => setAsk(true)}>Usuń z telefonu</button>}
+      </main>
+    </>
+  );
+}
+
+// ====================================================================== Ustawienia
+function SettingsScreen({ st, update, go }: P) {
+  const s = st.settings;
+  const set = (patch: Partial<typeof s>) => update(x => ({ ...x, settings: { ...x.settings, ...patch } }));
+  return (
+    <>
+      <header className="p-head"><button className="p-icon" onClick={() => go({ s: 'home' })} aria-label="Wróć">‹</button><div className="p-wt"><b>Ustawienia</b></div><span /></header>
+      <main className="p-main">
+        <section className="p-sec">
+          <h2>Krok ciężaru (przyciski − / +)</h2>
+          <div className="p-chips">{[0.5, 1, 1.25, 2.5, 5].map(v => <button key={v} className={`p-chip big ${s.kgStep === v ? 'on' : ''}`} onClick={() => set({ kgStep: v })}>{fmtKg(v)} kg</button>)}</div>
+        </section>
+        <section className="p-sec">
+          <h2>Domyślna przerwa</h2>
+          <p className="p-note">Gdy plan nie podaje przerwy dla ćwiczenia.</p>
+          <div className="p-chips">{[60, 90, 120, 150, 180, 240].map(v => <button key={v} className={`p-chip big ${s.defaultRest === v ? 'on' : ''}`} onClick={() => set({ defaultRest: v })}>{fmtClock(v)}</button>)}</div>
+        </section>
+        <section className="p-sec">
+          <h2>Dźwięk końca przerwy</h2>
+          <div className="p-chips"><button className={`p-chip big ${s.sound ? 'on' : ''}`} onClick={() => { unlockAudio(); set({ sound: true }); scheduleBeep(0.1); }}>Włączony</button><button className={`p-chip big ${!s.sound ? 'on' : ''}`} onClick={() => set({ sound: false })}>Wyłączony</button></div>
+          <p className="p-note">Dźwięk gra tylko przy włączonym ekranie i otwartej aplikacji (ograniczenie iOS). W trakcie treningu aplikacja nie pozwala ekranowi zgasnąć. Wyciszenie telefonu przełącznikiem z boku też wycisza dźwięk.</p>
+        </section>
+        <section className="p-sec">
+          <h2>Dane w telefonie</h2>
+          <p className="p-note">Treningów zapisanych w telefonie: {st.history.length} (w tym niewysłanych: {st.history.filter(w => !w.sentAt).length}). Telefon trzyma ostatnie 60. Usunięcie aplikacji z ekranu początkowego kasuje jej dane – wysyłaj treningi do komputera na bieżąco.</p>
+        </section>
+        <p className="p-note">Atlas Treningowy · wersja {__APP_VERSION__}</p>
+      </main>
+    </>
+  );
+}
+declare const __APP_VERSION__: string;

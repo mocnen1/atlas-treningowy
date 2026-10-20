@@ -1,0 +1,41 @@
+{
+  "name": "atlas-treningowy",
+  "productName": "Atlas Treningowy",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Dziennik treningowy z modelem 3D mięśni",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "electron": "electron .",
+    "test": "node --import tsx --test tests/stats.test.ts tests/transfer.test.ts",
+    "build:phone": "node scripts/phone-catalog.mjs && vite build --config vite.phone.config.ts",
+    "dev:phone": "vite --config vite.phone.config.ts"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
+    "@fontsource/ibm-plex-mono": "^5.1.0",
+    "@fontsource/ibm-plex-sans": "^5.1.0",
+    "@fontsource/saira-condensed": "^5.1.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.160.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "@zxing/library": "^0.21.3",
+    "electron": "^33.2.1",
+    "fflate": "^0.8.2",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.160.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vite-plugin-singlefile": "^2.0.3",
+    "zxing-wasm": "^2.1.2"
+  },
+  "author": "Bartek"
+}
