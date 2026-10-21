@@ -5,7 +5,9 @@ import type { Workout, WorkoutSet } from '../store/types';
 export type ExerciseLookup = (id: string) => Exercise | undefined;
 
 /** Seria liczy się do objętości, jeśli nie jest rozgrzewkowa i ma powtórzenia lub czas. */
-export const isWorkingSet = (s: WorkoutSet) => !s.warmup && ((s.reps ?? 0) > 0 || (s.durationSec ?? 0) > 0);
+export const isWorkingSet = (s: WorkoutSet) => !s.warmup && ((s.reps ?? 0) > 0 || (s.repsAlt ?? 0) > 0 || (s.durationSec ?? 0) > 0);
+/** Wszystkie powtórzenia serii (oba warianty) – do tonażu */
+export const allReps = (s: WorkoutSet) => (s.reps ?? 0) + (s.repsAlt ?? 0);
 
 export interface MuscleLoad {
   /** Suma serii × waga zaangażowania */
@@ -22,7 +24,7 @@ export function workoutLoad(w: Workout, lookup: ExerciseLookup): Record<MuscleId
     if (!ex || !ex.countsForVolume) continue;
     for (const s of we.sets) {
       if (!isWorkingSet(s)) continue;
-      const t = (s.reps ?? 0) * (s.weightKg ?? 0);
+      const t = allReps(s) * (s.weightKg ?? 0);
       for (const [m, wt] of Object.entries(ex.muscles)) {
         const o = (out[m] ??= { effSets: 0, tonnage: 0 });
         o.effSets += wt;
@@ -99,7 +101,7 @@ export function workoutSummary(w: Workout, lookup: ExerciseLookup) {
   let sets = 0, working = 0, tonnage = 0;
   for (const e of w.exercises) for (const s of e.sets) {
     sets++;
-    if (isWorkingSet(s)) { working++; tonnage += (s.reps ?? 0) * (s.weightKg ?? 0); }
+    if (isWorkingSet(s)) { working++; tonnage += allReps(s) * (s.weightKg ?? 0); }
   }
   const load = workoutLoad(w, lookup);
   const top = Object.entries(load).sort((a, b) => b[1].effSets - a[1].effSets).slice(0, 4).map(([m]) => m);

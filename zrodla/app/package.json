@@ -1,7 +1,7 @@
 {
   "name": "atlas-treningowy",
   "productName": "Atlas Treningowy",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Dziennik treningowy z modelem 3D mięśni",
   "main": "electron/main.cjs",
@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "electron": "electron .",
-    "test": "node --import tsx --test tests/stats.test.ts tests/transfer.test.ts tests/phone.test.ts",
+    "test": "node --import tsx --test tests/stats.test.ts tests/transfer.test.ts tests/phone.test.ts tests/superset.test.ts",
     "build:phone": "node scripts/phone-catalog.mjs && vite build --config vite.phone.config.ts",
     "dev:phone": "vite --config vite.phone.config.ts"
   },

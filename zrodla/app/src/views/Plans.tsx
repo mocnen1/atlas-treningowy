@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../store/store';
-import { uid, type Plan, type PlanExercise } from '../store/types';
+import { linkNext, supersetGroups, uid, type Plan, type PlanExercise } from '../store/types';
 import { shortName } from '../data/catalog';
 import { ConfirmButton } from '../ui/common';
 import { ExercisePicker } from './ExercisePicker';
@@ -58,6 +58,7 @@ function PlanEditor({ plan, onDeleted }: { plan: Plan; onDeleted: () => void }) 
   const [picker, setPicker] = useState(false);
   const set = (fn: (p: Plan) => void) => update(d => { const p = d.plans.find(x => x.id === plan.id); if (p) fn(p); });
   const setEx = (id: string, fn: (e: PlanExercise) => void) => set(p => { const e = p.exercises.find(x => x.id === id); if (e) fn(e); });
+  const groups = supersetGroups(plan.exercises, e => e.supersetId);
 
   return (
     <div className="panel">
@@ -68,12 +69,15 @@ function PlanEditor({ plan, onDeleted }: { plan: Plan; onDeleted: () => void }) 
       {plan.exercises.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
           <table className="mtable plan-table">
-            <thead><tr><th>#</th><th>Ćwiczenie</th><th className="r">Serie</th><th>Powtórzenia</th><th className="r">Przerwa (s)</th><th>Uwagi</th><th /></tr></thead>
+            <thead><tr><th>#</th><th>Ćwiczenie</th><th className="r">Serie</th><th>Powtórzenia</th><th className="r">Przerwa (s)</th><th>Uwagi</th><th>Superseria / warianty powt.</th><th /></tr></thead>
             <tbody>
               {plan.exercises.map((pe, i) => {
                 const ex = lookup(pe.exerciseId);
+                const grp = groups.find(g => g.includes(i))!;
+                const next = plan.exercises[i + 1];
+                const linked = !!next && !!pe.supersetId && next.supersetId === pe.supersetId;
                 return (
-                  <tr key={pe.id} style={{ cursor: 'default' }}>
+                  <tr key={pe.id} style={{ cursor: 'default' }} className={grp.length > 1 ? 'ss-row' : ''}>
                     <td className="num muted">{i + 1}</td>
                     <td><b style={{ fontWeight: 500 }}>{ex?.name ?? pe.exerciseId}</b>{ex && <div className="muted" style={{ fontSize: 11.5 }}>{ex.equipmentPl} · {Object.keys(ex.muscles).slice(0, 2).map(shortName).join(', ')}</div>}</td>
                     <td className="r"><input className="input sm" id={`pe-s-${pe.id}`} inputMode="numeric" defaultValue={pe.sets} aria-label="Liczba serii" onBlur={e => setEx(pe.id, x => { x.sets = Math.max(1, Math.min(20, num(e.target.value) ?? 3)); })} /></td>
@@ -83,6 +87,16 @@ function PlanEditor({ plan, onDeleted }: { plan: Plan; onDeleted: () => void }) 
                     </span></td>
                     <td className="r"><input className="input sm" id={`pe-r-${pe.id}`} inputMode="numeric" defaultValue={pe.restSec ?? ''} aria-label="Przerwa w sekundach" onBlur={e => setEx(pe.id, x => { x.restSec = num(e.target.value); })} /></td>
                     <td><input className="input" id={`pe-n-${pe.id}`} defaultValue={pe.notes} placeholder="np. tempo 3-0-1" aria-label="Uwagi" onBlur={e => setEx(pe.id, x => { x.notes = e.target.value; })} /></td>
+                    <td className="plan-opts">
+                      <div>{grp.length > 1 && <span className="ss-tag">superseria {grp.indexOf(i) + 1}/{grp.length}</span>}{' '}
+                      {next && <button className={`btn ghost small ${linked ? 'on' : ''}`} aria-pressed={linked} title={linked ? 'Rozłącz z następnym' : 'Rób na zmianę z następnym ćwiczeniem'}
+                        onClick={() => set(p => linkNext(p.exercises, i, !linked))}>{linked ? 'Rozłącz' : 'Superseria ↓'}</button>}</div>
+                      <div>{pe.altLabels ? <span className="tgt">
+                        <input className="input sm" style={{ width: 82 }} id={`pe-alta-${pe.id}`} defaultValue={pe.altLabels[0]} aria-label="Wariant pełny" onBlur={e => setEx(pe.id, x => { if (x.altLabels) x.altLabels = [e.target.value.trim() || 'pełne', x.altLabels[1]]; })} />+
+                        <input className="input sm" style={{ width: 82 }} id={`pe-altb-${pe.id}`} defaultValue={pe.altLabels[1]} aria-label="Wariant łatwiejszy" onBlur={e => setEx(pe.id, x => { if (x.altLabels) x.altLabels = [x.altLabels[0], e.target.value.trim() || 'łatwiejsze']; })} />
+                        <button className="btn ghost small" onClick={() => setEx(pe.id, x => { x.altLabels = null; })} aria-label="Wyłącz warianty">✕</button>
+                      </span> : <button className="btn ghost small" onClick={() => setEx(pe.id, x => { x.altLabels = ['pełne', 'łatwiejsze']; })}>2 warianty</button>}</div>
+                    </td>
                     <td className="r" style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn ghost small" disabled={i === 0} onClick={() => set(p => { const a = p.exercises; [a[i - 1], a[i]] = [a[i], a[i - 1]]; })} aria-label="Wyżej">↑</button>
                       <button className="btn ghost small" disabled={i === plan.exercises.length - 1} onClick={() => set(p => { const a = p.exercises; [a[i + 1], a[i]] = [a[i], a[i + 1]]; })} aria-label="Niżej">↓</button>
@@ -96,9 +110,9 @@ function PlanEditor({ plan, onDeleted }: { plan: Plan; onDeleted: () => void }) 
         </div>
       )}
       <div><button className="btn primary" onClick={() => setPicker(true)}>+ Dodaj ćwiczenia</button></div>
-      <p className="note">Powtórzenia możesz podać jako zakres (np. 8–12) albo jedną liczbę. Przerwa ustawia licznik odpoczynku na telefonie.</p>
+      <p className="note">Powtórzenia możesz podać jako zakres (np. 8–12) albo jedną liczbę. Przerwa ustawia licznik odpoczynku na telefonie. Superseria: ćwiczenia robione na zmianę – telefon po serii pierwszego od razu przechodzi do drugiego, a przerwę liczy dopiero po rundzie (najdłuższa przerwa z grupy). „2 warianty” dzieli powtórzenia w serii na pełne i łatwiejsze; nazwy wariantów możesz zmienić.</p>
       {picker && <ExercisePicker profileId={profile!.id} onClose={() => setPicker(false)} onAdd={ids => {
-        set(p => { for (const exerciseId of ids) p.exercises.push({ id: uid(), exerciseId, sets: 3, repsMin: 8, repsMax: 12, restSec: 120, notes: '' }); });
+        set(p => { for (const exerciseId of ids) p.exercises.push({ id: uid(), exerciseId, sets: 3, repsMin: 8, repsMax: 12, restSec: 120, notes: '', supersetId: null, altLabels: null }); });
         setPicker(false);
       }} />}
     </div>

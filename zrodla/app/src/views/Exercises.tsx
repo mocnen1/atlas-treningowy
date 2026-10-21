@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store/store';
-import { e1rm, isWorkingSet, sessionEffort } from '../lib/stats';
+import { allReps, e1rm, isWorkingSet, sessionEffort } from '../lib/stats';
+import { fmtRepsAlt, setScore } from '../shared/transfer';
 import { TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
 import { ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, fmtDate, fmtNum, useFilteredExercises } from '../ui/common';
 import { ExerciseEditor } from './ExerciseEditor';
@@ -18,11 +19,11 @@ export function ExercisesView() {
   const history = useMemo(() => {
     if (!sel) return [];
     return db.workouts.filter(w => w.profileId === profile!.id)
-      .flatMap(w => w.exercises.filter(e => e.exerciseId === sel).map(e => ({ w, sets: e.sets.filter(isWorkingSet) })))
+      .flatMap(w => w.exercises.filter(e => e.exerciseId === sel).map(e => ({ w, sets: e.sets.filter(isWorkingSet), labels: e.altLabels })))
       .filter(h => h.sets.length)
       .map(h => {
-        const best = h.sets.reduce((a, s) => (e1rm(s.weightKg ?? 0, s.reps ?? 0) > e1rm(a.weightKg ?? 0, a.reps ?? 0) ? s : a), h.sets[0]);
-        return { date: h.w.date, sets: h.sets, effort: sessionEffort(h.sets), best, est: e1rm(best.weightKg ?? 0, best.reps ?? 0), vol: h.sets.reduce((a, s) => a + (s.reps ?? 0) * (s.weightKg ?? 0), 0) };
+        const best = h.sets.reduce((a, s) => (setScore(s.weightKg, s.reps, s.repsAlt) > setScore(a.weightKg, a.reps, a.repsAlt) ? s : a), h.sets[0]);
+        return { date: h.w.date, labels: h.labels, sets: h.sets, effort: sessionEffort(h.sets), best, est: e1rm(best.weightKg ?? 0, best.reps ?? 0), vol: h.sets.reduce((a, s) => a + allReps(s) * (s.weightKg ?? 0), 0) };
       })
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [db.workouts, sel, profile]);
@@ -67,7 +68,7 @@ export function ExercisesView() {
                   <tbody>{history.slice(0, 30).map((h, i) => (
                     <tr key={i}>
                       <td>{fmtDate(h.date)}</td>
-                      <td className="num">{h.best.weightKg != null ? `${fmtNum(h.best.weightKg)} kg × ` : ''}{h.best.reps ?? (h.best.durationSec ? `${h.best.durationSec} s` : '–')}</td>
+                      <td className="num">{h.best.weightKg != null ? `${fmtNum(h.best.weightKg)} kg × ` : ''}{h.best.reps == null && h.best.repsAlt == null ? (h.best.durationSec ? `${h.best.durationSec} s` : '–') : fmtRepsAlt(h.best.reps, h.best.repsAlt, h.labels)}</td>
                       <td className="r num"><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                         <i className="meter" style={{ width: 50, ['--w' as any]: `${(h.est / maxEst) * 100}%` }} />{h.est ? fmtNum(h.est) : '–'}</span></td>
                       <td className="r num">{h.sets.length}</td>

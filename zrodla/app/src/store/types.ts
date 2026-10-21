@@ -25,13 +25,21 @@ export interface WorkoutSet {
   durationSec: number | null;
   rpe: number | null;
   warmup: boolean;
+  /** Powtórzenia w łatwiejszym wariancie (gdy ćwiczenie ma altLabels); `reps` to wtedy wariant pełny */
+  repsAlt: number | null;
 }
+
+/** Nazwy dwóch wariantów powtórzeń w jednej serii, np. ['pełne', 'tylko nogi'] */
+export type AltLabels = [string, string];
 
 export interface WorkoutExercise {
   id: string;
   exerciseId: string;
   notes: string;
   sets: WorkoutSet[];
+  /** Superseria: sąsiednie ćwiczenia z tym samym identyfikatorem są robione na zmianę */
+  supersetId: string | null;
+  altLabels: AltLabels | null;
 }
 
 export interface Workout {
@@ -69,6 +77,8 @@ export interface PlanExercise {
   /** Docelowa przerwa między seriami (s) */
   restSec: number | null;
   notes: string;
+  supersetId: string | null;
+  altLabels: AltLabels | null;
 }
 
 export interface Plan {
@@ -108,15 +118,42 @@ export function normalizeDb(raw: unknown): Db {
   const db: Db = { ...emptyDb(), ...r, version: DB_VERSION } as Db;
   db.customExercises = r.customExercises ?? [];
   db.weightOverrides = r.weightOverrides ?? {};
-  db.plans = (r.plans ?? []).map((p: any) => ({ createdAt: new Date().toISOString(), ...p, exercises: (p.exercises ?? []).map((e: any) => ({ sets: 3, repsMin: null, repsMax: null, restSec: null, notes: '', ...e })) }));
+  db.plans = (r.plans ?? []).map((p: any) => ({ createdAt: new Date().toISOString(), ...p, exercises: (p.exercises ?? []).map((e: any) => ({ sets: 3, repsMin: null, repsMax: null, restSec: null, notes: '', supersetId: null, altLabels: null, ...e })) }));
   db.profiles = db.profiles.map((p: any) => ({ bodyMassKg: null, targets: {}, createdAt: new Date().toISOString(), ...p, bodyModel: p.bodyModel === 'female' ? 'female' : 'male' }));
   db.workouts = db.workouts.map((w: any) => ({
     startTime: null, durationMin: null, name: '', notes: '', source: 'ręcznie', createdAt: new Date().toISOString(), ...w,
     exercises: (w.exercises ?? []).map((e: any) => ({
-      notes: '', ...e,
-      sets: (e.sets ?? []).map((s: any) => ({ reps: null, weightKg: null, restSec: null, durationSec: null, rpe: null, warmup: false, ...s })),
+      notes: '', supersetId: null, altLabels: null, ...e,
+      sets: (e.sets ?? []).map((s: any) => ({ reps: null, weightKg: null, restSec: null, durationSec: null, rpe: null, warmup: false, repsAlt: null, ...s })),
     })),
   }));
   if (db.activeProfileId && !db.profiles.some(p => p.id === db.activeProfileId)) db.activeProfileId = db.profiles[0]?.id ?? null;
   return db;
+}
+
+/** Grupy superserii: indeksy sąsiednich elementów z tym samym, niepustym identyfikatorem (pojedyncze ćwiczenie = grupa jednoelementowa). */
+export function supersetGroups<T>(items: T[], idOf: (x: T) => string | null | undefined): number[][] {
+  const out: number[][] = [];
+  items.forEach((x, i) => {
+    const id = idOf(x), prev = out[out.length - 1];
+    if (id && prev && idOf(items[prev[0]]) === id) prev.push(i); else out.push([i]);
+  });
+  return out;
+}
+
+/** Łączy ćwiczenie `i` z następnym w superserię (wspólny identyfikator) albo rozłącza je. Działa na tablicy ćwiczeń treningu lub planu. */
+export function linkNext<T extends { supersetId: string | null }>(arr: T[], i: number, on: boolean) {
+  const a = arr[i], b = arr[i + 1];
+  if (!a || !b) return;
+  if (on) {
+    const id = a.supersetId ?? b.supersetId ?? uid();
+    const old = b.supersetId;
+    for (const x of arr) if (x === a || x === b || (old && x.supersetId === old)) x.supersetId = id;
+  } else {
+    // rozcięcie grupy między i a i+1: dalsza część dostaje nowy identyfikator
+    const id = a.supersetId, nid = uid();
+    for (let k = i + 1; k < arr.length && arr[k].supersetId === id; k++) arr[k].supersetId = nid;
+  }
+  // pojedyncze ćwiczenie nie jest superserią
+  supersetGroups(arr, x => x.supersetId).forEach(g => { if (g.length === 1) arr[g[0]].supersetId = null; });
 }

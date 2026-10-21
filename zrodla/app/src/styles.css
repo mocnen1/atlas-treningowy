@@ -274,3 +274,20 @@ button.chip:hover { border-color: var(--accent); color: var(--fg); }
 .thumb-btn { border: 0; padding: 0; background: none; cursor: pointer; border-radius: 6px; }
 .thumb-btn:hover .ex-thumb { outline: 2px solid var(--accent); }
 .wex-img { padding: 10px 12px; border-bottom: 1px solid var(--line); max-width: 460px; }
+
+/* superserie i warianty powtórzeń */
+.wex.ss { border-left: 4px solid var(--accent); }
+.wex.ss-cont { margin-top: -10px; border-top-left-radius: 0; border-top-right-radius: 0; }
+.wex.ss { position: relative; }
+.wex .ss-tag { margin: 8px 12px 0; }
+.wex.ss { display: grid; }
+.wex.ss > .ss-tag { justify-self: start; }
+.ss-tag { display: inline-block; font: 600 10.5px var(--f-mono); letter-spacing: .05em; text-transform: uppercase; background: var(--accent); color: var(--accent-ink); border-radius: 4px; padding: 1px 6px; }
+.btn.ghost.on { color: var(--accent); border-color: var(--accent); }
+.alt-row { padding: 8px 12px; border-bottom: 1px solid var(--line); align-items: center; font-size: 13px; }
+.alt-row .input.sm { width: 120px; }
+tr.ss-row td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.plan-opts { white-space: nowrap; }
+.plan-opts > div { display: flex; gap: 4px; align-items: center; min-height: 30px; }
+.plan-table td input.input:not(.sm) { min-width: 120px; }
+.plan-table td:nth-child(2) { min-width: 170px; }

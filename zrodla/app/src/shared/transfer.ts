@@ -17,10 +17,20 @@ export const CHUNK = 140;
 export const enum Kind { PhoneWorkouts = 1, PcPlans = 2 }
 
 /** Trening w formacie przesyłanym z telefonu (pola jak w aplikacji na komputer). */
-export interface TransferSet { reps: number | null; weightKg: number | null; restSec: number | null; durationSec: number | null; rpe: number | null; warmup: boolean }
+export interface TransferSet {
+  reps: number | null; weightKg: number | null; restSec: number | null; durationSec: number | null; rpe: number | null; warmup: boolean;
+  /** Powtórzenia w łatwiejszym wariancie (np. „tylko nogi”); `reps` to wtedy wariant pełny. Brak w starszych wersjach. */
+  repsAlt?: number | null;
+}
+/** Nazwy dwóch wariantów powtórzeń: [pełny, łatwiejszy] */
+export type AltLabels = [string, string];
 export interface TransferWorkout {
   id: string; date: string; startTime: string | null; durationMin: number | null; name: string; notes: string;
-  exercises: { exerciseId: string; notes: string; sets: TransferSet[] }[];
+  exercises: {
+    exerciseId: string; notes: string; sets: TransferSet[];
+    /** Identyfikator superserii: sąsiednie ćwiczenia z tym samym identyfikatorem robione na zmianę */
+    ss?: string | null; alt?: AltLabels | null;
+  }[];
 }
 export interface PhoneBundle {
   k: 'workouts'; v: number; sentAt: string; workouts: TransferWorkout[]; custom: TransferCustom[];
@@ -29,15 +39,20 @@ export interface PhoneBundle {
 }
 
 /** Plan treningowy przesyłany na telefon. */
-export interface TransferPlanExercise { exerciseId: string; sets: number; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string }
+export interface TransferPlanExercise {
+  exerciseId: string; sets: number; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string;
+  ss?: string | null; alt?: AltLabels | null;
+}
 export interface TransferPlan { id: string; name: string; exercises: TransferPlanExercise[] }
 export interface TransferCustom { id: string; name: string; eq: string; vol: boolean; top: string | null }
 /** Ostatni wynik ćwiczenia: data, ciężar i powtórzenia najlepszej serii roboczej */
-export type TransferLast = [date: string, kg: number | null, reps: number | null];
+export type TransferLast = [date: string, kg: number | null, reps: number | null, repsAlt?: number | null];
 export interface PcBundle {
   k: 'plans'; v: number; sentAt: string; profile: string; plans: TransferPlan[]; custom: TransferCustom[]; last: Record<string, TransferLast>;
   /** Liczba treningów z oceną trudności na ćwiczenie (gotowość trenera); brak w starszych wersjach */
   rated?: Record<string, number>;
+  /** Ćwiczenia zapisywane w dwóch wariantach powtórzeń (ostatnio użyte nazwy) */
+  alt?: Record<string, AltLabels>;
 }
 
 export type Bundle = PhoneBundle | PcBundle;
@@ -119,4 +134,16 @@ export function localDate(ms: number) {
 export function localTime(ms: number) {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** Najlepsza seria do „ostatnio”: najwyższy szacowany 1RM; przy wariantach – najwięcej pełnych, potem łatwiejszych powtórzeń. */
+export function setScore(kg: number | null, reps: number | null, repsAlt?: number | null): number {
+  const r = reps ?? 0, a = repsAlt ?? 0;
+  return (kg ?? 0) * (1 + (r + a * 0.5) / 30) * 1000 + r * 10 + a * 0.5;
+}
+
+/** Zapis powtórzeń: „8”, przy wariantach „4 + 6” (z nazwami: „4 pełne + 6 tylko nogi”). */
+export function fmtRepsAlt(reps: number | null, repsAlt: number | null | undefined, labels?: AltLabels | null): string {
+  if (repsAlt == null) return reps == null ? '–' : String(reps);
+  return labels ? `${reps ?? 0} ${labels[0]} + ${repsAlt} ${labels[1]}` : `${reps ?? 0} + ${repsAlt}`;
 }

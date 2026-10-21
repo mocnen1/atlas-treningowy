@@ -1,7 +1,7 @@
 // Stan aplikacji na telefonie. Trzymany w localStorage (zapis po każdej zmianie).
 import catalogJson from './catalog.json';
 import musclesJson from '../data/muscles.json';
-import { localDate, localTime, type PcBundle, type PhoneBundle, type TransferCustom, type TransferLast, type TransferPlan, type TransferWorkout } from '../shared/transfer';
+import { localDate, localTime, setScore, type AltLabels, type PcBundle, type PhoneBundle, type TransferCustom, type TransferLast, type TransferPlan, type TransferWorkout } from '../shared/transfer';
 
 export interface CatalogItem { id: string; name: string; nameEn: string; eq: string; vol: boolean; top: string | null; verified: boolean; img: boolean; custom?: boolean }
 export const CATALOG: CatalogItem[] = (catalogJson as [string, string, string, string, number, string | null, number, number][])
@@ -9,10 +9,21 @@ export const CATALOG: CatalogItem[] = (catalogJson as [string, string, string, s
 const MUSCLE_NAMES: Record<string, string> = Object.fromEntries(musclesJson.muscles.map(m => [m.id, m.name.replace(/\s*\(.*\)$/, '')]));
 export const muscleName = (id: string | null) => (id ? MUSCLE_NAMES[id] ?? '' : '');
 
-export interface PSet { id: string; kg: number | null; reps: number | null; dur: number | null; rpe: number | null; warmup: boolean; doneAt: number | null; restSec: number | null }
-export interface PExercise { id: string; exerciseId: string; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string; sets: PSet[] }
+export interface PSet {
+  id: string; kg: number | null; reps: number | null; dur: number | null; rpe: number | null; warmup: boolean; doneAt: number | null; restSec: number | null;
+  /** Powtórzenia w łatwiejszym wariancie (gdy ćwiczenie ma `alt`) */
+  repsAlt?: number | null;
+}
+export interface PExercise {
+  id: string; exerciseId: string; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string; sets: PSet[];
+  /** Superseria: sąsiednie ćwiczenia z tym samym identyfikatorem robione na zmianę */
+  ss?: string | null;
+  /** Dwa warianty powtórzeń w serii: [pełny, łatwiejszy] */
+  alt?: AltLabels | null;
+}
 export interface PWorkout { id: string; name: string; planId: string | null; startedAt: number; endedAt: number | null; notes: string; exercises: PExercise[]; sentAt: number | null }
-export interface Rest { setId: string; from: number; target: number }
+/** Przerwa po serii. `next` = przejście w superserii do kolejnego ćwiczenia (bez odliczania i sygnału). */
+export interface Rest { setId: string; from: number; target: number; next?: string | null }
 export interface Settings { kgStep: number; defaultRest: number; sound: boolean }
 
 export interface PhoneState {
@@ -25,6 +36,8 @@ export interface PhoneState {
   last: Record<string, TransferLast>;
   /** Treningi z oceną trudności wg komputera (stan z chwili odbioru planów) */
   rated: Record<string, number>;
+  /** Ćwiczenia zapisywane w dwóch wariantach powtórzeń – zapamiętane nazwy wariantów */
+  alt: Record<string, AltLabels>;
   active: PWorkout | null;
   rest: Rest | null;
   history: PWorkout[];
@@ -33,7 +46,7 @@ export interface PhoneState {
 
 const KEY = 'atlas-phone-v1';
 export const emptyState = (): PhoneState => ({
-  v: 1, profile: null, receivedAt: null, plans: [], custom: [], last: {}, rated: {}, active: null, rest: null, history: [],
+  v: 1, profile: null, receivedAt: null, plans: [], custom: [], last: {}, rated: {}, alt: {}, active: null, rest: null, history: [],
   settings: { kgStep: 2.5, defaultRest: 120, sound: true },
 });
 
@@ -60,14 +73,17 @@ const CATALOG_BY_ID = new Map(CATALOG.map(c => [c.id, c]));
 /** Nowa seria z podpowiedzią: ostatni wynik z komputera albo poprzednia seria. */
 export function suggestedSet(s: PhoneState, exerciseId: string, repsMin: number | null): PSet {
   const last = s.last[exerciseId];
-  return { id: uid(), kg: last?.[1] ?? null, reps: last?.[2] ?? repsMin ?? null, dur: null, rpe: null, warmup: false, doneAt: null, restSec: null };
+  return { id: uid(), kg: last?.[1] ?? null, reps: last?.[2] ?? repsMin ?? null, repsAlt: last?.[3] ?? null, dur: null, rpe: null, warmup: false, doneAt: null, restSec: null };
 }
 
-export function newExercise(s: PhoneState, exerciseId: string, plan?: { sets: number; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string }): PExercise {
+export function newExercise(s: PhoneState, exerciseId: string, plan?: { sets: number; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string; ss?: string | null; alt?: AltLabels | null }): PExercise {
   const n = plan?.sets ?? 3;
+  const alt = plan?.alt ?? s.alt[exerciseId] ?? null;
   const base = suggestedSet(s, exerciseId, plan?.repsMin ?? null);
+  if (alt) base.repsAlt ??= 0; else base.repsAlt = null;
   return {
     id: uid(), exerciseId, repsMin: plan?.repsMin ?? null, repsMax: plan?.repsMax ?? null, restSec: plan?.restSec ?? null, notes: plan?.notes ?? '',
+    ss: plan?.ss ?? null, alt,
     sets: Array.from({ length: n }, () => ({ ...base, id: uid() })),
   };
 }
@@ -90,7 +106,8 @@ export function toTransfer(w: PWorkout): TransferWorkout {
     name: w.name, notes: w.notes,
     exercises: w.exercises.map(e => ({
       exerciseId: e.exerciseId, notes: e.notes,
-      sets: e.sets.filter(x => x.doneAt).map(x => ({ reps: x.reps, weightKg: x.kg, restSec: x.restSec, durationSec: x.dur, rpe: x.rpe, warmup: x.warmup })),
+      ...(e.ss ? { ss: e.ss } : {}), ...(e.alt ? { alt: e.alt } : {}),
+      sets: e.sets.filter(x => x.doneAt).map(x => ({ reps: x.reps, weightKg: x.kg, restSec: x.restSec, durationSec: x.dur, rpe: x.rpe, warmup: x.warmup, ...(e.alt ? { repsAlt: x.repsAlt ?? 0 } : {}) })),
     })).filter(e => e.sets.length),
   };
 }
@@ -109,7 +126,7 @@ export function applyPcBundle(s: PhoneState, b: PcBundle): PhoneState {
   const last = { ...s.last };
   for (const [id, v] of Object.entries(b.last)) if (!last[id] || last[id][0] <= v[0]) last[id] = v;
   return {
-    ...s, profile: b.profile, receivedAt: b.sentAt, plans: b.plans, last, rated: b.rated ?? s.rated,
+    ...s, profile: b.profile, receivedAt: b.sentAt, plans: b.plans, last, rated: b.rated ?? s.rated, alt: { ...s.alt, ...(b.alt ?? {}) },
     custom: [...b.custom, ...s.custom.filter(c => c.local && !fromPc.has(c.id))],
   };
 }
@@ -119,11 +136,11 @@ export function updateLast(last: Record<string, TransferLast>, w: PWorkout): Rec
   const out = { ...last };
   const date = localDate(w.startedAt);
   for (const e of w.exercises) {
-    const done = e.sets.filter(x => x.doneAt && !x.warmup && (x.reps ?? 0) > 0);
+    const done = e.sets.filter(x => x.doneAt && !x.warmup && ((x.reps ?? 0) > 0 || (e.alt && (x.repsAlt ?? 0) > 0)));
     if (!done.length) continue;
-    const score = (x: PSet) => (x.kg ?? 0) * (1 + (x.reps ?? 0) / 30);
+    const score = (x: PSet) => setScore(x.kg, x.reps, e.alt ? x.repsAlt : null);
     const best = done.reduce((a, x) => (score(x) >= score(a) ? x : a), done[0]);
-    out[e.exerciseId] = [date, best.kg, best.reps];
+    out[e.exerciseId] = e.alt ? [date, best.kg, best.reps, best.repsAlt ?? 0] : [date, best.kg, best.reps];
   }
   return out;
 }
@@ -143,4 +160,25 @@ export function ratedCount(s: PhoneState, exerciseId: string): number {
   const since = s.receivedAt ? Date.parse(s.receivedAt) : 0;
   const local = s.history.filter(w => (w.endedAt ?? 0) > since && w.exercises.some(e => e.exerciseId === exerciseId && e.sets.some(x => x.doneAt && !x.warmup && x.rpe != null))).length;
   return (s.rated[exerciseId] ?? 0) + local;
+}
+
+/** Indeksy ćwiczeń tej samej superserii co ćwiczenie `i` (sąsiednie, ten sam identyfikator). */
+export function supersetOf(ex: PExercise[], i: number): number[] {
+  const id = ex[i]?.ss;
+  if (!id) return [i];
+  let a = i, b = i;
+  while (a > 0 && ex[a - 1].ss === id) a--;
+  while (b < ex.length - 1 && ex[b + 1].ss === id) b++;
+  return Array.from({ length: b - a + 1 }, (_, k) => a + k);
+}
+
+/**
+ * Co po odhaczeniu serii nr `si` ćwiczenia `ei`: w superserii przejście do kolejnego ćwiczenia grupy, które ma tę serię nieodhaczoną
+ * (bez przerwy), a po ostatnim ćwiczeniu rundy – przerwa (najdłuższa z przerw ćwiczeń grupy).
+ */
+export function afterSet(ex: PExercise[], ei: number, si: number, defaultRest: number): { next: number | null; rest: number } {
+  const g = supersetOf(ex, ei);
+  const rest = Math.max(...g.map(k => ex[k].restSec ?? defaultRest));
+  for (const k of g) if (k > ei) { const s = ex[k].sets[si]; if (s && !s.doneAt) return { next: k, rest: 0 }; }
+  return { next: null, rest: g.length > 1 ? rest : ex[ei].restSec ?? defaultRest };
 }

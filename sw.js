@@ -1,5 +1,5 @@
-// Atlas Treningowy 0.6.0-202610201052
-const CACHE = 'atlas-0.6.0-202610201052';
+// Atlas Treningowy 0.8.0-202610211257
+const CACHE = 'atlas-0.8.0-202610211257';
 const IMG = 'atlas-img';
 const FILES = ["./","./index.html","./manifest.webmanifest","./icon-180.png","./icon-192.png","./icon-512.png"];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });

@@ -25,10 +25,10 @@ export function demoData(): { profile: Profile; workouts: Workout[] } {
       id: uid(), profileId: profile.id, date: addDays(today, -day), startTime: '17:30', durationMin: 65 + (k % 3) * 5, name, notes: '',
       source: 'ręcznie', createdAt: new Date().toISOString(),
       exercises: plan.map(([exerciseId, sets, reps, kg]) => ({
-        id: uid(), exerciseId, notes: '',
+        id: uid(), exerciseId, notes: '', supersetId: null, altLabels: null,
         sets: Array.from({ length: sets }, (_, i): WorkoutSet => ({
           id: uid(), reps: reps - (i === sets - 1 ? 1 : 0), weightKg: kg ? Math.round(kg * progress / 2.5) * 2.5 : null,
-          restSec: reps <= 8 ? 150 : 90, durationSec: null, rpe: i === sets - 1 ? 9 : 8, warmup: false,
+          restSec: reps <= 8 ? 150 : 90, durationSec: null, rpe: i === sets - 1 ? 9 : 8, warmup: false, repsAlt: null,
         })),
       })),
     });
