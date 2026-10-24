@@ -291,3 +291,8 @@ tr.ss-row td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .plan-opts > div { display: flex; gap: 4px; align-items: center; min-height: 30px; }
 .plan-table td input.input:not(.sm) { min-width: 120px; }
 .plan-table td:nth-child(2) { min-width: 170px; }
+
+/* mapa obciążenia: skąd obciążenie mięśnia */
+.sources { background: var(--surface-2); padding: 12px; }
+.sources .mtable { font-size: 13px; }
+.sources-hint { margin: 10px 4px 0; }

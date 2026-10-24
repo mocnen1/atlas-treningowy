@@ -4,7 +4,7 @@ import { linkNext, supersetGroups, todayIso, uid, type AltLabels, type Workout, 
 import { isWorkingSet, workoutLoad, workoutSummary } from '../lib/stats';
 import { shortName } from '../data/catalog';
 import { BodyViewer } from '../three/BodyViewer';
-import { ConfirmButton, EffortSelect, fmtDate, fmtDur, fmtKg, fmtNum, rampColor } from '../ui/common';
+import { ConfirmButton, EffortSelect, fmtDate, fmtDur, fmtKg, fmtNum, rampColor, stateColor } from '../ui/common';
 import { ExercisePicker } from './ExercisePicker';
 import { newWorkout } from './Workouts';
 import { ExerciseAnim, ExerciseThumb } from '../shared/ExerciseImage';
@@ -217,7 +217,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
             </div>
           </div>
           <BodyViewer compact paintKey={load}
-            colorOf={m => load[m] ? rampColor(Math.min(1, load[m].effSets / maxEff)) : null}
+            colorOf={m => load[m] ? rampColor(Math.min(1, load[m].effSets / maxEff)) : stateColor('none')}
             tooltip={m => `${shortName(m)}: ${fmtNum(load[m]?.effSets ?? 0)} ef. serii`}
             onHover={setHover} selected={hover} />
           <div className="panel">

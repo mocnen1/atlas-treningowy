@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStore } from '../store/store';
 import { todayIso } from '../store/types';
 import { DEFAULT_TARGETS, GROUPS, MUSCLES, shortName } from '../data/catalog';
-import { periodStats, targetState, type TargetState } from '../lib/stats';
+import { muscleSources, periodStats, targetState, type ExerciseLookup, type MuscleSource, type TargetState } from '../lib/stats';
 import { BodyViewer } from '../three/BodyViewer';
 import { STATE_LABEL, STATE_SHORT, addDays, fmtDate, fmtNum, rampColor, stateColor } from '../ui/common';
 
@@ -17,6 +17,7 @@ export function LoadMapView() {
   const [period, setPeriod] = useState<Period>('28');
   const [metric, setMetric] = useState<Metric>('target');
   const [sel, setSel] = useState<string | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
   const [sort, setSort] = useState<'body' | 'deficit'>('deficit');
 
   const mine = useMemo(() => db.workouts.filter(w => w.profileId === profile!.id), [db.workouts, profile]);
@@ -25,6 +26,10 @@ export function LoadMapView() {
   const from = period === 'all' ? first : addDays(to, -(Number(period) - 1));
   const { stats, weeks, workoutCount } = useMemo(() => periodStats(mine, from, to, lookup), [mine, from, to, lookup]);
 
+  // Skąd obciążenie: dla wskazanego (najechanego) albo przypiętego mięśnia, tylko z wybranego okresu
+  const focus = hover ?? sel;
+  const sources = useMemo(() => (focus ? muscleSources(mine, from, to, lookup, focus) : []), [mine, from, to, lookup, focus]);
+  const topSource = (m: string) => { const s = muscleSources(mine, from, to, lookup, m); return s.length ? ` · głównie: ${lookup(s[0].exerciseId)?.name ?? s[0].exerciseId}${s.length > 1 ? ` (+${s.length - 1})` : ''}` : ''; };
   const target = (m: string) => (m in profile!.targets ? profile!.targets[m] : DEFAULT_TARGETS[m]) ?? null;
   const state = (m: string): TargetState => targetState(stats[m]?.perWeek ?? 0, target(m));
   const maxFreq = Math.max(1, ...Object.values(stats).map(s => s.freqPerWeek));
@@ -71,8 +76,9 @@ export function LoadMapView() {
           <BodyViewer paintKey={[stats, metric, profile!.targets]} selected={sel}
             colorOf={m => metric === 'freq' ? rampColor(Math.min(1, (stats[m]?.freqPerWeek ?? 0) / maxFreq)) : stateColor(state(m))}
             tooltip={m => metric === 'freq'
-              ? `${shortName(m)}: ${fmtNum(stats[m]?.freqPerWeek ?? 0)} × w tygodniu`
-              : `${shortName(m)}: ${fmtNum(stats[m]?.perWeek ?? 0)} serii/tydz. · ${STATE_LABEL[state(m)]}`}
+              ? `${shortName(m)}: ${fmtNum(stats[m]?.freqPerWeek ?? 0)} × w tygodniu${topSource(m)}`
+              : `${shortName(m)}: ${fmtNum(stats[m]?.perWeek ?? 0)} serii/tydz. · ${STATE_LABEL[state(m)]}${topSource(m)}`}
+            onHover={setHover}
             onPick={m => setSel(m === sel ? null : m)} />
           <div className="legend">
             {metric === 'target' ? <>
@@ -92,6 +98,8 @@ export function LoadMapView() {
               <button aria-pressed={sort === 'body'} onClick={() => setSort('body')}>Wg partii</button>
             </div>
           </div>
+          <SourcesPanel muscle={focus} pinned={!hover && !!sel} sources={sources} total={stats[focus ?? '']?.effSets ?? 0}
+            period={PERIODS.find(p => p.id === period)!.label} from={from} to={to} lookup={lookup} onClose={() => setSel(null)} />
           <div className="scroll">
             <table className="mtable">
               <thead><tr><th>Mięsień</th><th className="r">Serie / tydz.</th><th>Cel (serie)</th><th className="r">Tren. / tydz.</th><th>Stan</th></tr></thead>
@@ -132,5 +140,37 @@ function TargetCell(p: { value: [number, number] | null; isDefault: boolean; onC
       <input aria-label="Cel maksimum" inputMode="decimal" defaultValue={b ?? ''} key={`b${b}`} onBlur={e => commit(a, num(e.target.value))} />
       {!p.isDefault && <button className="btn ghost small" title="Przywróć cel domyślny" onClick={p.onReset}>↺</button>}
     </span>
+  );
+}
+
+/** Lista ćwiczeń, które obciążyły mięsień w wybranym okresie. */
+function SourcesPanel(p: { muscle: string | null; pinned: boolean; sources: MuscleSource[]; total: number; period: string; from: string; to: string; lookup: ExerciseLookup; onClose: () => void }) {
+  if (!p.muscle) return <p className="note sources-hint">Najedź na mięsień albo kliknij go (na modelu lub w tabeli), żeby zobaczyć, które ćwiczenia go obciążyły w wybranym okresie.</p>;
+  return (
+    <div className="panel sources">
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div>
+          <div className="eyebrow">Skąd obciążenie · {p.period} ({fmtDate(p.from)} – {fmtDate(p.to)})</div>
+          <h2 style={{ textTransform: 'none' }}>{shortName(p.muscle)}</h2>
+        </div>
+        {p.pinned && <button className="btn ghost small" onClick={p.onClose}>Zamknij</button>}
+      </div>
+      {p.sources.length === 0 ? <p className="note">W tym okresie żadne ćwiczenie nie obciążyło tego mięśnia.</p> : (
+        <table className="mtable">
+          <thead><tr><th>Ćwiczenie</th><th className="r">Serie</th><th className="r">Udział</th><th className="r">Ef. serie</th><th className="r">Trening.</th><th>Ostatnio</th></tr></thead>
+          <tbody>{p.sources.map(s => (
+            <tr key={s.exerciseId} style={{ cursor: 'default' }}>
+              <td>{p.lookup(s.exerciseId)?.name ?? s.exerciseId}</td>
+              <td className="r num">{s.sets}</td>
+              <td className="r num">{Math.round(s.weight * 100)}%</td>
+              <td className="r num"><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                <i className="meter" style={{ width: 46, ['--w' as any]: `${p.total ? (s.effSets / p.total) * 100 : 0}%` }} />{fmtNum(s.effSets)}</span></td>
+              <td className="r num">{s.sessions}</td>
+              <td>{fmtDate(s.lastDate)}</td>
+            </tr>))}</tbody>
+        </table>
+      )}
+      <p className="note">Ef. serie = serie robocze × udział mięśnia w ćwiczeniu. {p.pinned ? 'Mięsień przypięty – kliknij inny albo „Zamknij”.' : 'Kliknij mięsień, żeby przypiąć listę.'}</p>
+    </div>
   );
 }

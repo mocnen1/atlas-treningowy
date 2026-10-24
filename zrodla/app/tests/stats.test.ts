@@ -103,3 +103,15 @@ test('gotowość trenera: liczy treningi z oceną co najmniej jednej serii roboc
   assert.equal(sessionEffort([set({ rpe: 7 }), set({ rpe: 9 }), set({ warmup: true, rpe: 10 })]), 9);
   assert.equal(sessionEffort([set()]), null);
 });
+
+test('skąd obciążenie mięśnia: tylko treningi z okresu, serie robocze × udział, od największego wkładu', async () => {
+  const { muscleSources } = await import('../src/lib/stats');
+  const st = (reps: number, warmup = false) => ({ id: 'x', reps, weightKg: 50, restSec: null, durationSec: null, rpe: null, warmup, repsAlt: null });
+  const wk = (id: string, date: string, ex: [string, number][]) => ({ id, profileId: 'p', date, startTime: null, durationMin: null, name: '', notes: '', source: 'ręcznie' as const, createdAt: '',
+    exercises: ex.map(([e, n]) => ({ id: e, exerciseId: e, notes: '', supersetId: null, altLabels: null, sets: [st(5, true), ...Array.from({ length: n }, () => st(8))] })) });
+  const look = (id: string) => ({ squat: { muscles: { soleus: 0.2, vasti: 1 } }, calf: { muscles: { soleus: 0.6 } }, bench: { muscles: { chest_stern: 1 } } } as any)[id] && { id, countsForVolume: true, ...({ squat: { muscles: { soleus: 0.2, vasti: 1 } }, calf: { muscles: { soleus: 0.6 } }, bench: { muscles: { chest_stern: 1 } } } as any)[id] };
+  const ws = [wk('a', '2026-10-20', [['squat', 4], ['calf', 3]]), wk('b', '2026-10-22', [['squat', 3], ['bench', 3]]), wk('old', '2026-09-01', [['calf', 5]])];
+  const r = muscleSources(ws, '2026-10-18', '2026-10-24', look, 'soleus');
+  assert.deepEqual(r.map(x => [x.exerciseId, x.sets, Math.round(x.effSets * 10) / 10, x.sessions, x.lastDate]),
+    [['calf', 3, 1.8, 1, '2026-10-20'], ['squat', 7, 1.4, 2, '2026-10-22']], 'stary trening poza okresem i rozgrzewki pominięte');
+});

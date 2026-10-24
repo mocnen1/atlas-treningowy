@@ -129,3 +129,36 @@ export function sessionEffort(sets: WorkoutSet[]): number | null {
   const r = sets.filter(s => isWorkingSet(s) && s.rpe != null).map(s => s.rpe!);
   return r.length ? Math.max(...r) : null;
 }
+
+export interface MuscleSource {
+  exerciseId: string;
+  /** Serie robocze tego ćwiczenia w okresie */
+  sets: number;
+  /** Efektywne serie dla mięśnia (serie × udział mięśnia) */
+  effSets: number;
+  /** Udział mięśnia w ćwiczeniu (0–1) */
+  weight: number;
+  sessions: number;
+  lastDate: string;
+}
+
+/** Ćwiczenia, które obciążyły mięsień w okresie [from, to], od największego wkładu. */
+export function muscleSources(workouts: Workout[], from: string, to: string, lookup: ExerciseLookup, muscle: MuscleId): MuscleSource[] {
+  const out = new Map<string, MuscleSource & { seen: Set<string> }>();
+  for (const w of workouts) {
+    if (w.date < from || w.date > to) continue;
+    for (const we of w.exercises) {
+      const ex = lookup(we.exerciseId);
+      const wt = ex?.countsForVolume ? ex.muscles[muscle] ?? 0 : 0;
+      if (!wt) continue;
+      const n = we.sets.filter(isWorkingSet).length;
+      if (!n) continue;
+      const o = out.get(we.exerciseId) ?? { exerciseId: we.exerciseId, sets: 0, effSets: 0, weight: wt, sessions: 0, lastDate: w.date, seen: new Set<string>() };
+      o.sets += n; o.effSets += n * wt;
+      if (!o.seen.has(w.id)) { o.seen.add(w.id); o.sessions++; }
+      if (w.date > o.lastDate) o.lastDate = w.date;
+      out.set(we.exerciseId, o);
+    }
+  }
+  return [...out.values()].map(({ seen: _s, ...r }) => r).sort((a, b) => b.effSets - a.effSets);
+}
