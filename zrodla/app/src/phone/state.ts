@@ -117,7 +117,21 @@ export function startWorkout(s: PhoneState, plan: TransferPlan | null): PWorkout
 /** Zapamiętuje przy ćwiczeniu cel trenera (jeśli trener ma dość danych). */
 export function withTarget(s: PhoneState, w: Pick<PWorkout, 'planId' | 'name'>, e: PExercise): PExercise {
   const g = trainerFor(s, w, e).suggestion;
-  return { ...e, tgt: g ? toTarget(g) : null };
+  const out: PExercise = { ...e, tgt: g ? toTarget(g) : null };
+  // pewny cel (≥ 3 ocenione treningi w tym planie) od razu w seriach; przy „wstępnie” i „szacunku” serie zostają z ostatnim wynikiem
+  if (g && g.level === 'plan') out.sets = fillSets(out, [g.kg, g.reps, g.repsAlt]);
+  return out;
+}
+
+/** Wpisuje [kg, powt., powt. łatwiejsze] do nieodhaczonych serii roboczych ćwiczenia. */
+export function fillSets(e: PExercise, v: [number | null, number | null, number | null]): PSet[] {
+  return e.sets.map(z => (z.doneAt || z.warmup ? z : { ...z, kg: v[0] ?? z.kg, reps: v[1], repsAlt: e.alt ? v[2] : z.repsAlt }));
+}
+
+/** Czy nieodhaczone serie robocze mają wpisany cel trenera. */
+export function setsAtTarget(e: PExercise): boolean {
+  const t = e.tgt, open = e.sets.filter(z => !z.doneAt && !z.warmup);
+  return !!t && open.length > 0 && open.every(z => (t[0] == null || z.kg === t[0]) && z.reps === t[1] && (!e.alt || (z.repsAlt ?? 0) === (t[2] ?? 0)));
 }
 
 /** Szacowany czas trwania serii (s), gdy nie wiemy, kiedy się zaczęła: ~3 s na powtórzenie. */

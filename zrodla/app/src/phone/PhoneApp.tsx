@@ -6,7 +6,7 @@ import { outcome, type HSet, type TrainerState } from '../shared/trainer';
 import { ExerciseAnim, ExerciseThumb, imgUrl } from '../shared/ExerciseImage';
 import {
   CATALOG, afterSet, applyPcBundle, estSetSec, supersetOf, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
-  exerciseHistory, lastInContext, withTarget, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
+  exerciseHistory, fillSets, lastInContext, setsAtTarget, withTarget, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
 } from './state';
 
 type Screen = { s: 'home' } | { s: 'workout' } | { s: 'send'; ids: string[] } | { s: 'receive' } | { s: 'settings' } | { s: 'view'; id: string };
@@ -359,7 +359,8 @@ function WorkoutScreen({ st, update, go }: P) {
                   altOn={!!alt} onAlt={() => setAltEdit(e.id)}
                   onRemove={() => setW(x => ({ ...x, exercises: x.exercises.filter(y => y.id !== e.id) }))} />
               </div>
-              <TrainerBox tr={tr} alt={alt} onApply={tr.suggestion ? () => { const g = tr.suggestion!; setEx(e.id, y => ({ ...y, sets: y.sets.map(z => (z.doneAt || z.warmup ? z : { ...z, kg: g.kg ?? z.kg, reps: g.reps, repsAlt: alt ? g.repsAlt : z.repsAlt })) })); } : undefined} />
+              <TrainerBox tr={tr} alt={alt} atTarget={setsAtTarget(e)} last={lc ? [lc.kg, lc.reps, lc.repsAlt] : last ? [last[1], last[2], last[3] ?? null] : null}
+                onSet={v => setEx(e.id, y => ({ ...y, sets: fillSets(y, v) }))} />
               {altEdit === e.id && <AltEditor initial={alt ?? st.alt[e.exerciseId] ?? ['pełne', 'łatwiejsze']} on={!!alt}
                 onSave={labels => {
                   update(s => ({ ...s, alt: { ...s.alt, [e.exerciseId]: labels } }));
@@ -473,7 +474,9 @@ const LEVEL_LABEL = { plan: 'z tego planu', mixed: 'wstępnie', other: 'szacunek
 const OUT_LABEL = { beat: 'przebity', hit: 'trafiony', miss: 'nietrafiony' } as const;
 
 /** Podpowiedź trenera albo postęp zbierania danych (osobno dla tego planu i dla innych). */
-function TrainerBox({ tr, alt, onApply }: { tr: TrainerState; alt: [string, string] | null; onApply?: () => void }) {
+type Vals = [kg: number | null, reps: number | null, repsAlt: number | null];
+/** Podpowiedź trenera: przy pewnym celu serie startują z celem, przycisk przełącza między celem a ostatnim wynikiem. */
+function TrainerBox({ tr, alt, atTarget, last, onSet }: { tr: TrainerState; alt: [string, string] | null; atTarget: boolean; last: Vals | null; onSet: (v: Vals) => void }) {
   const [more, setMore] = useState(false);
   const g = tr.suggestion;
   if (!g) {
@@ -485,10 +488,12 @@ function TrainerBox({ tr, alt, onApply }: { tr: TrainerState; alt: [string, stri
       </span>
     );
   }
+  const short = (v: Vals) => `${v[0] != null ? `${fmtKg(v[0])} × ` : ''}${alt && v[2] != null ? `${v[1] ?? 0} + ${v[2]}` : v[1] ?? '–'}`;
   const target = `${g.kg != null ? `${fmtKg(g.kg)} kg × ` : ''}${alt && g.repsAlt != null ? `${g.reps} ${alt[0]} + ${g.repsAlt} ${alt[1]}` : g.reps}`;
+  const tv: Vals = [g.kg, g.reps, g.repsAlt];
   return (
     <div className={`p-coach ${g.level}`}>
-      <div className="p-coach-h"><span>Trener · {LEVEL_LABEL[g.level]}</span>{onApply && <button className="p-btn sm" onClick={onApply}>Wpisz cel</button>}</div>
+      <div className="p-coach-h"><span>Trener · {LEVEL_LABEL[g.level]}</span>{atTarget && <span className="p-coach-in">✓ w seriach</span>}</div>
       <b>Cel: {target}</b>
       <span className="p-sub">ostatnia seria na ok. {effortPct(g.rpe)}% ({g.rpe >= 9 ? '1 w zapasie' : '2 w zapasie'})</span>
       {g.outcomes.length > 0 && (
@@ -496,6 +501,9 @@ function TrainerBox({ tr, alt, onApply }: { tr: TrainerState; alt: [string, stri
           {g.pace !== 'normal' && <b className={`pace-${g.pace}`}>{g.pace === 'fast' ? 'tempo: szybciej' : 'tempo: wolniej'}</b>}</span>
       )}
       {g.warn && <span className="p-sub warn">{g.warn}</span>}
+      {atTarget
+        ? (last && <button className="p-btn sm p-coach-btn" onClick={() => onSet(last)}>Gorszy dzień? Wróć do ostatniego wyniku ({short(last)})</button>)
+        : <button className="p-btn sm p-coach-btn" onClick={() => onSet(tv)}>Ustaw serie na cel ({short(tv)})</button>}
       <button className="p-link sm" onClick={() => setMore(m => !m)}>{more ? 'Ukryj' : 'Dlaczego?'}</button>
       {more && <span className="p-sub">{g.reason}</span>}
     </div>

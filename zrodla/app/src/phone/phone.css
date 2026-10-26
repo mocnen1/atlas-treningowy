@@ -245,3 +245,5 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .p-outs b { font: 600 11px var(--f-mono); text-transform: uppercase; margin-left: 4px; }
 .pace-fast { color: var(--ok); } .pace-slow { color: var(--hot); }
 .p-hist-t { margin-left: auto; display: inline-flex; gap: 5px; align-items: center; font: 12px var(--f-mono); color: var(--muted); }
+.p-coach-in { color: var(--ok); text-transform: none; letter-spacing: 0; font-size: 12px; }
+.p-coach-btn { justify-self: start; margin-top: 4px; white-space: normal; text-align: left; height: auto; min-height: 36px; padding: 6px 12px; }

@@ -43,8 +43,12 @@ app.whenReady().then(async () => {
     report.coachKlata = await js(`document.querySelector('.p-coach')?.innerText`);
     await click('Dlaczego?'); await sleep(200);
     await shot('t1-klata-trener');
-    await click('Wpisz cel'); await sleep(300);
-    let s = await state(); report.tgt = s.active.exercises[0].tgt; report.setsAfterApply = s.active.exercises[0].sets.map(x => [x.kg, x.reps]);
+    let s = await state(); report.tgt = s.active.exercises[0].tgt; report.setsAtStart = s.active.exercises[0].sets.map(x => [x.kg, x.reps]);
+    await click('Gorszy dzień'); await sleep(300);
+    s = await state(); report.setsAfterBack = s.active.exercises[0].sets.map(x => [x.kg, x.reps]);
+    await shot('t1b-ostatni-wynik');
+    await click('Ustaw serie na cel'); await sleep(300);
+    s = await state(); report.setsAfterApply = s.active.exercises[0].sets.map(x => [x.kg, x.reps]);
     await click('Historia'); await sleep(400); await shot('t2-historia');
     await click('Zamknij'); await sleep(300);
     // zamiennik: dodane ćwiczenie spoza planu – „Ostatnio” w wyborze i szacunek trenera z innego planu

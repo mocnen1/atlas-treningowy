@@ -145,7 +145,14 @@ test('telefon: cel trenera zapisany przy ćwiczeniu i wysyłany do komputera', a
   const wk = startWorkout(s, { id: 'P1', name: 'Klata', exercises: [{ exerciseId: 'press', sets: 2, repsMin: 8, repsMax: 12, restSec: 90, notes: '' }, { exerciseId: 'nowe', sets: 1, repsMin: 8, repsMax: 12, restSec: 90, notes: '' }] });
   assert.deepEqual(wk.exercises[0].tgt, [62.5, 8, null, 8]);
   assert.equal(wk.exercises[1].tgt, null, 'bez historii brak celu');
-  assert.equal(wk.exercises[0].sets[0].kg, 60, 'serie startują od ostatniego wyniku w tym planie');
+  assert.deepEqual([wk.exercises[0].sets[0].kg, wk.exercises[0].sets[0].reps], [62.5, 8], 'pewny cel (3 treningi z tego planu) od razu w seriach');
+  const { setsAtTarget, fillSets } = await import('../src/phone/state');
+  assert.ok(setsAtTarget(wk.exercises[0]));
+  const back = { ...wk.exercises[0], sets: fillSets(wk.exercises[0], [60, 12, null]) };
+  assert.ok(!setsAtTarget(back)); assert.equal(back.sets[1].reps, 12);
+  const s2 = { ...s, hist: { press: s.hist.press.slice(0, 2) } };
+  const w2 = startWorkout(s2, { id: 'P1', name: 'Klata', exercises: [{ exerciseId: 'press', sets: 1, repsMin: 8, repsMax: 12, restSec: 90, notes: '' }] });
+  assert.equal(w2.exercises[0].sets[0].kg, 60, 'bez pewnego celu serie zostają z ostatnim wynikiem w tym planie');
   wk.exercises[0].sets[0].doneAt = Date.now(); wk.endedAt = Date.now();
   const t = toTransfer(wk);
   assert.deepEqual(t.exercises[0].t, [62.5, 8, null, 8]); assert.equal(t.planId, 'P1');
