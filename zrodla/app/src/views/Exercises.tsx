@@ -3,6 +3,7 @@ import { useStore } from '../store/store';
 import { allReps, e1rm, isWorkingSet, sessionEffort } from '../lib/stats';
 import { fmtRepsAlt, setScore } from '../shared/transfer';
 import { TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
+import { contextKey, suggest, type HSession, type HSet } from '../shared/trainer';
 import { ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, fmtDate, fmtNum, useFilteredExercises } from '../ui/common';
 import { ExerciseEditor } from './ExerciseEditor';
 import { ExerciseAnim } from '../shared/ExerciseImage';
@@ -59,9 +60,7 @@ export function ExercisesView() {
             </div>
             <div className="panel">
               <h2>Twoja historia</h2>
-              {(() => { const n = history.filter(h => h.effort != null).length; const ok = n >= TRAINER_MIN_SESSIONS;
-                return <div className={`trainer ${ok ? 'ready' : ''}`}><i>{Array.from({ length: TRAINER_MIN_SESSIONS }, (_, k) => <b key={k} className={k < n ? 'on' : ''} />)}</i>
-                  {ok ? `Trener: dane zebrane (${n} treningów z oceną trudności) – podpowiedzi ciężaru pojawią się w kolejnej wersji.` : `Trener: ${n} z ${TRAINER_MIN_SESSIONS} treningów z oceną trudności. Oceniaj przynajmniej ostatnią serię.`}</div>; })()}
+              <TrainerByPlan exerciseId={sel!} />
               {history.length === 0 ? <p className="note">Jeszcze nie wykonywałeś tego ćwiczenia w profilu {profile!.name}.</p> : (
                 <table className="mtable">
                   <thead><tr><th>Data</th><th>Najlepsza seria</th><th className="r">Szac. 1RM</th><th className="r">Serie</th><th className="r">Trudność</th></tr></thead>
@@ -88,6 +87,51 @@ export function ExercisesView() {
         </div>
       </div>
       {edit && <ExerciseEditor {...edit} onClose={() => setEdit(null)} onSaved={id => setSel(id)} />}
+    </div>
+  );
+}
+
+/** Trener wg planów: dla każdego planu (kontekstu), w którym robiono ćwiczenie – liczba ocenionych treningów i cel na następny raz. */
+function TrainerByPlan({ exerciseId }: { exerciseId: string }) {
+  const { db, profile } = useStore();
+  const plans = db.plans.filter(p => p.profileId === profile!.id);
+  const rows = useMemo(() => {
+    const sessions: HSession[] = [];
+    const names = new Map<string, string>(plans.map(p => [p.id, p.name]));
+    for (const w of db.workouts.filter(x => x.profileId === profile!.id)) {
+      const c = contextKey(w.planId, w.name, plans);
+      if (!names.has(c)) names.set(c, w.name || 'Bez nazwy');
+      for (const e of w.exercises) if (e.exerciseId === exerciseId && e.sets.some(isWorkingSet))
+        sessions.push({ d: w.date, c, n: names.get(c)!, s: e.sets.map(s => [s.weightKg, s.reps, s.rpe, s.warmup ? 1 : 0, ...(s.repsAlt != null ? [s.repsAlt] : [])] as HSet) });
+    }
+    const ctxs = new Set(sessions.map(s => s.c));
+    for (const p of plans) if (p.exercises.some(e => e.exerciseId === exerciseId)) ctxs.add(p.id);
+    const alt = db.workouts.some(w => w.exercises.some(e => e.exerciseId === exerciseId && e.altLabels));
+    return [...ctxs].map(c => {
+      const pe = plans.find(p => p.id === c)?.exercises.find(e => e.exerciseId === exerciseId);
+      return { c, name: names.get(c) ?? c, tr: suggest(sessions, c, pe ? [pe.repsMin, pe.repsMax] : null, alt, 2.5) };
+    }).sort((a, b) => b.tr.ctxRated - a.tr.ctxRated);
+  }, [db.workouts, db.plans, exerciseId, profile]);
+  if (!rows.length) return <div className="trainer">Trener: brak treningów z tym ćwiczeniem.</div>;
+  return (
+    <div className="trainer-plans">
+      <div className="muted" style={{ fontSize: 12.5 }}>Trener liczy osobno dla każdego planu (inne zmęczenie przed ćwiczeniem). Podpowiedź widać na telefonie w trakcie treningu.</div>
+      <table className="mtable">
+        <thead><tr><th>Plan / trening</th><th className="r">Ocenione</th><th>Cel na następny raz</th></tr></thead>
+        <tbody>{rows.map(({ c, name, tr }) => {
+          const g = tr.suggestion;
+          return (
+            <tr key={c} style={{ cursor: 'default' }}>
+              <td>{name}</td>
+              <td className="r num">{Math.min(tr.ctxRated, 99)}/{TRAINER_MIN_SESSIONS}</td>
+              <td>{g ? <><b className="num">{g.kg != null ? `${fmtNum(g.kg)} kg × ` : ''}{g.repsAlt != null ? `${g.reps} + ${g.repsAlt}` : g.reps}</b>{' '}
+                <span className="muted" style={{ fontSize: 12 }}>{g.level === 'plan' ? '' : g.level === 'mixed' ? '(wstępnie)' : '(szacunek z innego planu)'}</span>
+                <div className="muted" style={{ fontSize: 12 }}>{g.reason}{g.warn ? ' ' + g.warn : ''}</div></>
+                : <span className="muted">za mało ocenionych treningów</span>}</td>
+            </tr>
+          );
+        })}</tbody>
+      </table>
     </div>
   );
 }

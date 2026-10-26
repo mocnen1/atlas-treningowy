@@ -296,3 +296,4 @@ tr.ss-row td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .sources { background: var(--surface-2); padding: 12px; }
 .sources .mtable { font-size: 13px; }
 .sources-hint { margin: 10px 4px 0; }
+.trainer-plans { display: grid; gap: 6px; }

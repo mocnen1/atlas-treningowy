@@ -6,7 +6,7 @@ import { shortName } from '../data/catalog';
 import { dayOfMonth, fmtDur, fmtKg, monthShort, monthTitle, weekday } from '../ui/common';
 
 export function newWorkout(profileId: string, date = todayIso()): Workout {
-  return { id: uid(), profileId, date, startTime: null, durationMin: null, name: '', notes: '', exercises: [], source: 'ręcznie', createdAt: new Date().toISOString() };
+  return { id: uid(), profileId, date, startTime: null, durationMin: null, name: '', notes: '', exercises: [], source: 'ręcznie', createdAt: new Date().toISOString(), planId: null };
 }
 
 export function WorkoutsView({ open }: { open: (id: string) => void }) {

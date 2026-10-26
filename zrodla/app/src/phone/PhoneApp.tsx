@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QrScanner, QrSender } from '../shared/qr';
 import { Kind, bundleToFile, fmtRepsAlt, type AltLabels, type PcBundle } from '../shared/transfer';
 import { EFFORT_LEVELS, TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
+import type { HSet, TrainerState } from '../shared/trainer';
 import { ExerciseAnim, ExerciseThumb, imgUrl } from '../shared/ExerciseImage';
 import {
   CATALOG, afterSet, applyPcBundle, estSetSec, supersetOf, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
-  phoneBundle, ratedCount, saveState, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
+  exerciseHistory, lastInContext, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
 } from './state';
 
 type Screen = { s: 'home' } | { s: 'workout' } | { s: 'send'; ids: string[] } | { s: 'receive' } | { s: 'settings' } | { s: 'view'; id: string };
@@ -207,6 +208,8 @@ function WorkoutScreen({ st, update, go }: P) {
   const [rateSet, setRateSet] = useState<string | null>(null);
   const [showImg, setShowImg] = useState<string | null>(null);
   const [altEdit, setAltEdit] = useState<string | null>(null);
+  /** Ćwiczenie, którego historię serii pokazujemy */
+  const [histFor, setHistFor] = useState<string | null>(null);
   useWakeLock(true);
 
   const setW = (fn: (w: PWorkout) => PWorkout) => update(s => ({ ...s, active: s.active ? fn(s.active) : s.active }));
@@ -316,6 +319,9 @@ function WorkoutScreen({ st, update, go }: P) {
           const nextEx = w.exercises[ei + 1];
           const linkedNext = !!nextEx && !!e.ss && nextEx.ss === e.ss;
           const alt = e.alt ?? null;
+          const tr = trainerFor(st, w, e);
+          const hasHist = exerciseHistory(st, e.exerciseId).length > 0;
+          const lc = lastInContext(st, e.exerciseId, workoutContext(st, w));
           let n = 0;
           return (
             <section className={`p-ex ${inSs ? 'ss' : ''} ${inSs && pos === 0 ? 'ss-first' : ''} ${inSs && pos === grp.length - 1 ? 'ss-last' : ''}`} key={e.id} id={'ex-' + e.id}>
@@ -332,9 +338,11 @@ function WorkoutScreen({ st, update, go }: P) {
                       ? (pos === grp.length - 1 ? ` · przerwa po rundzie ${fmtClock(Math.max(...grp.map(k => w.exercises[k].restSec ?? st.settings.defaultRest)))}` : '')
                       : ` · przerwa ${fmtClock(e.restSec ?? st.settings.defaultRest)}`}
                   </span>
-                  {last && <span className="p-sub">Ostatnio: <b>{last[1] != null ? `${fmtKg(last[1])} kg × ` : ''}{fmtRepsAlt(last[2], alt ? last[3] : null, alt)}</b> ({fmtDay(last[0])})</span>}
+                  {(last || hasHist) && <span className="p-sub p-last">
+                    {lc ? <>W tym planie: <b>{lc.kg != null ? `${fmtKg(lc.kg)} kg × ` : ''}{fmtRepsAlt(lc.reps, alt ? lc.repsAlt : null, alt)}</b> ({fmtDay(lc.d)})</>
+                      : last && <>Ostatnio: <b>{last[1] != null ? `${fmtKg(last[1])} kg × ` : ''}{fmtRepsAlt(last[2], alt ? last[3] : null, alt)}</b> ({fmtDay(last[0])})</>}
+                    {hasHist && <button className="p-link sm" onClick={() => setHistFor(e.id)}>Historia</button>}</span>}
                   {e.notes && <span className="p-sub">{e.notes}</span>}
-                  <TrainerBadge n={ratedCount(st, e.exerciseId)} />
                 </div>
                 <ExMenu onUp={ei > 0 ? () => setW(x => { const a = [...x.exercises]; [a[ei - 1], a[ei]] = [a[ei], a[ei - 1]]; return { ...x, exercises: a }; }) : undefined}
                   onLink={nextEx && !linkedNext ? () => setW(x => {
@@ -351,6 +359,7 @@ function WorkoutScreen({ st, update, go }: P) {
                   altOn={!!alt} onAlt={() => setAltEdit(e.id)}
                   onRemove={() => setW(x => ({ ...x, exercises: x.exercises.filter(y => y.id !== e.id) }))} />
               </div>
+              <TrainerBox tr={tr} alt={alt} onApply={tr.suggestion ? () => { const g = tr.suggestion!; setEx(e.id, y => ({ ...y, sets: y.sets.map(z => (z.doneAt || z.warmup ? z : { ...z, kg: g.kg ?? z.kg, reps: g.reps, repsAlt: alt ? g.repsAlt : z.repsAlt })) })); } : undefined} />
               {altEdit === e.id && <AltEditor initial={alt ?? st.alt[e.exerciseId] ?? ['pełne', 'łatwiejsze']} on={!!alt}
                 onSave={labels => {
                   update(s => ({ ...s, alt: { ...s.alt, [e.exerciseId]: labels } }));
@@ -429,10 +438,11 @@ function WorkoutScreen({ st, update, go }: P) {
         </div>
       )}
 
+      {histFor && (() => { const e = w.exercises.find(x => x.id === histFor); return e ? <HistorySheet st={st} exerciseId={e.exerciseId} ctx={workoutContext(st, w)} alt={e.alt ?? null} onClose={() => setHistFor(null)} /> : null; })()}
       {picker && <ExercisePicker st={st} onClose={() => setPicker(false)} onPick={(id, custom) => {
         update(s => {
           const s2 = custom ? { ...s, custom: [...s.custom, custom] } : s;
-          return { ...s2, active: s2.active ? { ...s2.active, exercises: [...s2.active.exercises, newExercise(s2, id)] } : s2.active };
+          return { ...s2, active: s2.active ? { ...s2.active, exercises: [...s2.active.exercises, newExercise(s2, id, undefined, workoutContext(s2, s2.active))] } : s2.active };
         });
         setPicker(false);
         setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 50);
@@ -459,13 +469,63 @@ function EffortBar({ value, onChange }: { value: number | null; onChange: (rpe: 
   );
 }
 
-function TrainerBadge({ n }: { n: number }) {
-  const ready = n >= TRAINER_MIN_SESSIONS;
+const LEVEL_LABEL = { plan: 'z tego planu', mixed: 'wstępnie', other: 'szacunek z innego planu' } as const;
+
+/** Podpowiedź trenera albo postęp zbierania danych (osobno dla tego planu i dla innych). */
+function TrainerBox({ tr, alt, onApply }: { tr: TrainerState; alt: [string, string] | null; onApply?: () => void }) {
+  const [more, setMore] = useState(false);
+  const g = tr.suggestion;
+  if (!g) {
+    const n = tr.ctxRated;
+    return (
+      <span className="p-trainer">
+        <i>{Array.from({ length: TRAINER_MIN_SESSIONS }, (_, k) => <b key={k} className={k < n ? 'on' : ''} />)}</i>
+        Trener: {Math.min(n, TRAINER_MIN_SESSIONS)}/{TRAINER_MIN_SESSIONS} ocenionych treningów w tym planie{tr.otherRated ? ` (w innych: ${tr.otherRated})` : ''}
+      </span>
+    );
+  }
+  const target = `${g.kg != null ? `${fmtKg(g.kg)} kg × ` : ''}${alt && g.repsAlt != null ? `${g.reps} ${alt[0]} + ${g.repsAlt} ${alt[1]}` : g.reps}`;
   return (
-    <span className={`p-trainer ${ready ? 'ready' : ''}`}>
-      <i>{Array.from({ length: TRAINER_MIN_SESSIONS }, (_, k) => <b key={k} className={k < n ? 'on' : ''} />)}</i>
-      {ready ? 'Trener: dane zebrane' : `Trener: ${Math.min(n, TRAINER_MIN_SESSIONS)}/${TRAINER_MIN_SESSIONS} treningów z oceną trudności`}
-    </span>
+    <div className={`p-coach ${g.level}`}>
+      <div className="p-coach-h"><span>Trener · {LEVEL_LABEL[g.level]}</span>{onApply && <button className="p-btn sm" onClick={onApply}>Wpisz cel</button>}</div>
+      <b>Cel: {target}</b>
+      <span className="p-sub">ostatnia seria na ok. {effortPct(g.rpe)}% ({g.rpe >= 9 ? '1 w zapasie' : '2 w zapasie'})</span>
+      {g.warn && <span className="p-sub warn">{g.warn}</span>}
+      <button className="p-link sm" onClick={() => setMore(m => !m)}>{more ? 'Ukryj' : 'Dlaczego?'}</button>
+      {more && <span className="p-sub">{g.reason}</span>}
+    </div>
+  );
+}
+
+/** Historia serii ćwiczenia: najpierw treningi z bieżącego planu, potem z innych. */
+function HistorySheet({ st, exerciseId, ctx, alt, onClose }: { st: PhoneState; exerciseId: string; ctx: string; alt: [string, string] | null; onClose: () => void }) {
+  const all = exerciseHistory(st, exerciseId);
+  const mine = all.filter(s => s.c === ctx), other = all.filter(s => s.c !== ctx);
+  const fmtSet = (x: HSet) => `${x[0] != null ? `${fmtKg(x[0])} kg × ` : ''}${x[1] == null ? '–' : fmtRepsAlt(x[1], x[4] ?? null, alt)}${x[2] != null ? ` · ${effortPct(x[2])}%` : ''}`;
+  const block = (title: string, list: typeof all) => list.length > 0 && (
+    <section className="p-sec">
+      <h2>{title}</h2>
+      {list.map((s, i) => (
+        <div key={i} className="p-hist">
+          <div className="p-hist-h"><b>{fmtDay(s.d)}</b><span>{s.n}</span></div>
+          <div className="p-done-list">{s.s.map((x, k) => <span key={k} className={x[3] ? 'warm' : ''}>{x[3] ? 'R · ' : ''}{fmtSet(x)}</span>)}</div>
+        </div>
+      ))}
+    </section>
+  );
+  return (
+    <div className="p-sheet" role="dialog" aria-label="Historia ćwiczenia">
+      <div className="p-sheet-head">
+        <b className="p-sheet-title">{lookupExercise(st, exerciseId)?.name ?? exerciseId}</b>
+        <button className="p-btn sm" onClick={onClose}>Zamknij</button>
+      </div>
+      <div className="p-sheet-body">
+        {all.length === 0 && <p className="p-note">Brak zapisanej historii. Historia z komputera przychodzi razem z planami („Odbierz plany z komputera”).</p>}
+        {block('W tym planie', mine)}
+        {block('W innych treningach', other)}
+        <p className="p-note">R = seria rozgrzewkowa. Procent to trudność serii (100% = upadek). Komputer wysyła po kilka ostatnich treningów z każdego planu.</p>
+      </div>
+    </div>
   );
 }
 
@@ -561,6 +621,7 @@ function ExercisePicker({ st, onClose, onPick }: { st: PhoneState; onClose: () =
           <button key={c.id} className="p-pick" onClick={() => onPick(c.id)}>
             <ExerciseThumb id={c.id} has={c.img} size={48} />
             <b>{c.name}</b><span>{c.eq}{c.top ? ` · ${muscleName(c.top)}` : ''}{c.custom ? ' · własne' : ''}</span>
+            {st.last[c.id] && <span className="p-pick-last">Ostatnio: {st.last[c.id][1] != null ? `${fmtKg(st.last[c.id][1])} kg × ` : ''}{fmtRepsAlt(st.last[c.id][2], st.last[c.id][3], st.alt[c.id])} ({fmtDay(st.last[c.id][0])})</span>}
           </button>
         ))}
         {q.trim().length >= 3 && !exact && (

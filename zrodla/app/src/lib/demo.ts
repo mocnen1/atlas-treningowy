@@ -23,7 +23,7 @@ export function demoData(): { profile: Profile; workouts: Workout[] } {
     const progress = 1 + (56 - day) / 56 * 0.08; // ~8% progresu w 8 tygodni
     workouts.push({
       id: uid(), profileId: profile.id, date: addDays(today, -day), startTime: '17:30', durationMin: 65 + (k % 3) * 5, name, notes: '',
-      source: 'ręcznie', createdAt: new Date().toISOString(),
+      source: 'ręcznie', createdAt: new Date().toISOString(), planId: null,
       exercises: plan.map(([exerciseId, sets, reps, kg]) => ({
         id: uid(), exerciseId, notes: '', supersetId: null, altLabels: null,
         sets: Array.from({ length: sets }, (_, i): WorkoutSet => ({

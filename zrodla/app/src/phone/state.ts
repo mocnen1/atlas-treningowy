@@ -1,7 +1,8 @@
 // Stan aplikacji na telefonie. Trzymany w localStorage (zapis po każdej zmianie).
 import catalogJson from './catalog.json';
 import musclesJson from '../data/muscles.json';
-import { localDate, localTime, setScore, type AltLabels, type PcBundle, type PhoneBundle, type TransferCustom, type TransferLast, type TransferPlan, type TransferWorkout } from '../shared/transfer';
+import { contextKey, suggest, type HSession, type HSet, type TrainerState } from '../shared/trainer';
+import { localDate, localTime, setScore, unpackHistory, type AltLabels, type PcBundle, type PhoneBundle, type TransferCustom, type TransferLast, type TransferPlan, type TransferWorkout } from '../shared/transfer';
 
 export interface CatalogItem { id: string; name: string; nameEn: string; eq: string; vol: boolean; top: string | null; verified: boolean; img: boolean; custom?: boolean }
 export const CATALOG: CatalogItem[] = (catalogJson as [string, string, string, string, number, string | null, number, number][])
@@ -38,6 +39,8 @@ export interface PhoneState {
   rated: Record<string, number>;
   /** Ćwiczenia zapisywane w dwóch wariantach powtórzeń – zapamiętane nazwy wariantów */
   alt: Record<string, AltLabels>;
+  /** Historia serii z komputera (stan z chwili odbioru planów) */
+  hist: Record<string, HSession[]>;
   active: PWorkout | null;
   rest: Rest | null;
   history: PWorkout[];
@@ -46,7 +49,7 @@ export interface PhoneState {
 
 const KEY = 'atlas-phone-v1';
 export const emptyState = (): PhoneState => ({
-  v: 1, profile: null, receivedAt: null, plans: [], custom: [], last: {}, rated: {}, alt: {}, active: null, rest: null, history: [],
+  v: 1, profile: null, receivedAt: null, plans: [], custom: [], last: {}, rated: {}, alt: {}, hist: {}, active: null, rest: null, history: [],
   settings: { kgStep: 2.5, defaultRest: 120, sound: true },
 });
 
@@ -70,16 +73,28 @@ export function lookupExercise(s: PhoneState, id: string): CatalogItem | undefin
 }
 const CATALOG_BY_ID = new Map(CATALOG.map(c => [c.id, c]));
 
-/** Nowa seria z podpowiedzią: ostatni wynik z komputera albo poprzednia seria. */
-export function suggestedSet(s: PhoneState, exerciseId: string, repsMin: number | null): PSet {
-  const last = s.last[exerciseId];
-  return { id: uid(), kg: last?.[1] ?? null, reps: last?.[2] ?? repsMin ?? null, repsAlt: last?.[3] ?? null, dur: null, rpe: null, warmup: false, doneAt: null, restSec: null };
+/** Ostatni wynik ćwiczenia w danym kontekście (planie): najlepsza seria robocza z ostatniego takiego treningu. */
+export function lastInContext(s: PhoneState, exerciseId: string, ctx: string | null): { d: string; kg: number | null; reps: number | null; repsAlt: number | null } | null {
+  if (!ctx) return null;
+  const h = exerciseHistory(s, exerciseId).find(x => x.c === ctx);
+  const ws = h?.s.filter(x => !x[3] && ((x[1] ?? 0) > 0 || (x[4] ?? 0) > 0));
+  if (!h || !ws?.length) return null;
+  const top = ws.reduce((a, x) => (setScore(x[0], x[1], x[4]) > setScore(a[0], a[1], a[4]) ? x : a), ws[0]);
+  return { d: h.d, kg: top[0], reps: top[1], repsAlt: top[4] ?? null };
 }
 
-export function newExercise(s: PhoneState, exerciseId: string, plan?: { sets: number; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string; ss?: string | null; alt?: AltLabels | null }): PExercise {
+/** Nowa seria z podpowiedzią: ostatni wynik w tym samym planie, a gdy go brak – ostatni wynik w ogóle. */
+export function suggestedSet(s: PhoneState, exerciseId: string, repsMin: number | null, ctx: string | null = null): PSet {
+  const lc = lastInContext(s, exerciseId, ctx);
+  const last = s.last[exerciseId];
+  const kg = lc ? lc.kg : last?.[1] ?? null, reps = lc ? lc.reps : last?.[2] ?? null, repsAlt = lc ? lc.repsAlt : last?.[3] ?? null;
+  return { id: uid(), kg, reps: reps ?? repsMin ?? null, repsAlt, dur: null, rpe: null, warmup: false, doneAt: null, restSec: null };
+}
+
+export function newExercise(s: PhoneState, exerciseId: string, plan?: { sets: number; repsMin: number | null; repsMax: number | null; restSec: number | null; notes: string; ss?: string | null; alt?: AltLabels | null }, ctx: string | null = null): PExercise {
   const n = plan?.sets ?? 3;
   const alt = plan?.alt ?? s.alt[exerciseId] ?? null;
-  const base = suggestedSet(s, exerciseId, plan?.repsMin ?? null);
+  const base = suggestedSet(s, exerciseId, plan?.repsMin ?? null, ctx);
   if (alt) base.repsAlt ??= 0; else base.repsAlt = null;
   return {
     id: uid(), exerciseId, repsMin: plan?.repsMin ?? null, repsMax: plan?.repsMax ?? null, restSec: plan?.restSec ?? null, notes: plan?.notes ?? '',
@@ -91,7 +106,7 @@ export function newExercise(s: PhoneState, exerciseId: string, plan?: { sets: nu
 export function startWorkout(s: PhoneState, plan: TransferPlan | null): PWorkout {
   return {
     id: uid(), name: plan?.name ?? '', planId: plan?.id ?? null, startedAt: Date.now(), endedAt: null, notes: '', sentAt: null,
-    exercises: plan ? plan.exercises.map(e => newExercise(s, e.exerciseId, e)) : [],
+    exercises: plan ? plan.exercises.map(e => newExercise(s, e.exerciseId, e, plan.id)) : [],
   };
 }
 
@@ -103,7 +118,7 @@ export function toTransfer(w: PWorkout): TransferWorkout {
   const end = w.endedAt ?? Date.now();
   return {
     id: w.id, date: localDate(w.startedAt), startTime: localTime(w.startedAt), durationMin: Math.max(1, Math.round((end - w.startedAt) / 60000)),
-    name: w.name, notes: w.notes,
+    name: w.name, notes: w.notes, ...(w.planId ? { planId: w.planId } : {}),
     exercises: w.exercises.map(e => ({
       exerciseId: e.exerciseId, notes: e.notes,
       ...(e.ss ? { ss: e.ss } : {}), ...(e.alt ? { alt: e.alt } : {}),
@@ -126,7 +141,7 @@ export function applyPcBundle(s: PhoneState, b: PcBundle): PhoneState {
   const last = { ...s.last };
   for (const [id, v] of Object.entries(b.last)) if (!last[id] || last[id][0] <= v[0]) last[id] = v;
   return {
-    ...s, profile: b.profile, receivedAt: b.sentAt, plans: b.plans, last, rated: b.rated ?? s.rated, alt: { ...s.alt, ...(b.alt ?? {}) },
+    ...s, profile: b.profile, receivedAt: b.sentAt, plans: b.plans, last, rated: b.rated ?? s.rated, alt: { ...s.alt, ...(b.alt ?? {}) }, hist: b.hist ? unpackHistory(b.hist) : s.hist,
     custom: [...b.custom, ...s.custom.filter(c => c.local && !fromPc.has(c.id))],
   };
 }
@@ -181,4 +196,31 @@ export function afterSet(ex: PExercise[], ei: number, si: number, defaultRest: n
   const rest = Math.max(...g.map(k => ex[k].restSec ?? defaultRest));
   for (const k of g) if (k > ei) { const s = ex[k].sets[si]; if (s && !s.doneAt) return { next: k, rest: 0 }; }
   return { next: null, rest: g.length > 1 ? rest : ex[ei].restSec ?? defaultRest };
+}
+
+/** Kontekst treningu dla trenera: plan, a bez planu plan o tej samej nazwie albo sama nazwa. */
+export const workoutContext = (s: PhoneState, w: Pick<PWorkout, 'planId' | 'name'>) => contextKey(w.planId, w.name, s.plans);
+
+/** Historia ćwiczenia: z komputera + treningi z telefonu, których komputer jeszcze nie znał przy ostatnim odbiorze planów. Od najnowszych. */
+export function exerciseHistory(s: PhoneState, exerciseId: string): HSession[] {
+  const since = s.receivedAt ? Date.parse(s.receivedAt) : 0;
+  const local: HSession[] = [];
+  for (const w of s.history) {
+    // niewysłane albo zrobione po ostatnim odbiorze – tych komputer jeszcze nie zna
+    if (w.sentAt && (w.endedAt ?? 0) <= since) continue;
+    const c = workoutContext(s, w);
+    for (const e of w.exercises) {
+      if (e.exerciseId !== exerciseId) continue;
+      const done = e.sets.filter(x => x.doneAt);
+      if (!done.length) continue;
+      local.push({ d: localDate(w.startedAt), c, n: w.name || 'Trening', s: done.map(x => [x.kg, x.dur != null && x.reps == null ? null : x.reps, x.rpe, x.warmup ? 1 : 0, ...(e.alt ? [x.repsAlt ?? 0] : [])] as HSet) });
+    }
+  }
+  return [...local, ...(s.hist[exerciseId] ?? [])].sort((a, b) => b.d.localeCompare(a.d));
+}
+
+/** Podpowiedź trenera dla ćwiczenia w bieżącym treningu. */
+export function trainerFor(s: PhoneState, w: Pick<PWorkout, 'planId' | 'name'>, e: PExercise): TrainerState {
+  const range: [number | null, number | null] | null = e.repsMin != null || e.repsMax != null ? [e.repsMin, e.repsMax] : null;
+  return suggest(exerciseHistory(s, e.exerciseId), workoutContext(s, w), range, !!e.alt, s.settings.kgStep);
 }

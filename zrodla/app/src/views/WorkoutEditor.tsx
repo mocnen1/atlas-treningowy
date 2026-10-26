@@ -9,6 +9,7 @@ import { ExercisePicker } from './ExercisePicker';
 import { newWorkout } from './Workouts';
 import { ExerciseAnim, ExerciseThumb } from '../shared/ExerciseImage';
 import { fmtRepsAlt } from '../shared/transfer';
+import { normName } from '../shared/trainer';
 
 const nowHM = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const parseNum = (s: string) => { const t = s.trim().replace(',', '.'); if (!t) return null; const n = Number(t); return Number.isFinite(n) && n >= 0 ? n : undefined; };
@@ -65,6 +66,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
 
   const set = (fn: (d: Workout) => void) => update(d => { const x = d.workouts.find(y => y.id === id); if (x) fn(x); });
   const groups = supersetGroups(w.exercises, e => e.supersetId);
+  const profilePlans = db.plans.filter(p => p.profileId === w.profileId);
   const running = !!w.startTime && w.durationMin == null && w.date === todayIso();
   const elapsedMin = running ? (() => { const [h, m] = w.startTime!.split(':').map(Number); const n = new Date(); return Math.max(0, n.getHours() * 60 + n.getMinutes() - h * 60 - m); })() : 0;
   void tick;
@@ -85,6 +87,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
   const duplicate = () => {
     const n = newWorkout(w.profileId);
     n.name = w.name;
+    n.planId = w.planId;
     n.exercises = w.exercises.map(e => ({ id: uid(), exerciseId: e.exerciseId, notes: '', supersetId: e.supersetId, altLabels: e.altLabels, sets: e.sets.map(s => ({ ...s, id: uid() })) }));
     update(d => { d.workouts.push(n); });
     open(n.id);
@@ -120,6 +123,12 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
               <label className="field">Początek<input id="w-start" type="time" value={w.startTime ?? ''} onChange={e => set(d => { d.startTime = e.target.value || null; })} /></label>
               <label className="field">Czas trwania (min)
                 <NumCell id="w-dur" label="Czas trwania w minutach" value={w.durationMin} onChange={v => set(d => { d.durationMin = v == null ? null : Math.round(v); })} />
+              </label>
+              <label className="field" title="Trener liczy postępy osobno dla każdego planu – to samo ćwiczenie w innym planie jest robione na innym zmęczeniu">Plan (dla trenera)
+                <select id="w-plan" value={w.planId ?? ''} onChange={e => set(d => { d.planId = e.target.value || null; })}>
+                  <option value="">{(() => { const p = profilePlans.find(x => normName(x.name) === normName(w.name)); return p ? `wg nazwy: ${p.name}` : '— bez planu —'; })()}</option>
+                  {profilePlans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
               </label>
             </div>
             <div className="row">

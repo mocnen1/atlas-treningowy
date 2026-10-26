@@ -53,6 +53,8 @@ export interface Workout {
   name: string;
   notes: string;
   exercises: WorkoutExercise[];
+  /** Plan, z którego zrobiono trening – kontekst dla trenera (null = bez planu; wtedy liczy się nazwa) */
+  planId: string | null;
   /** Skąd pochodzi zapis: wpisany ręcznie albo zaimportowany z telefonu */
   source: 'ręcznie' | 'import';
   createdAt: string;
@@ -121,7 +123,7 @@ export function normalizeDb(raw: unknown): Db {
   db.plans = (r.plans ?? []).map((p: any) => ({ createdAt: new Date().toISOString(), ...p, exercises: (p.exercises ?? []).map((e: any) => ({ sets: 3, repsMin: null, repsMax: null, restSec: null, notes: '', supersetId: null, altLabels: null, ...e })) }));
   db.profiles = db.profiles.map((p: any) => ({ bodyMassKg: null, targets: {}, createdAt: new Date().toISOString(), ...p, bodyModel: p.bodyModel === 'female' ? 'female' : 'male' }));
   db.workouts = db.workouts.map((w: any) => ({
-    startTime: null, durationMin: null, name: '', notes: '', source: 'ręcznie', createdAt: new Date().toISOString(), ...w,
+    startTime: null, durationMin: null, name: '', notes: '', source: 'ręcznie', createdAt: new Date().toISOString(), planId: null, ...w,
     exercises: (w.exercises ?? []).map((e: any) => ({
       notes: '', supersetId: null, altLabels: null, ...e,
       sets: (e.sets ?? []).map((s: any) => ({ reps: null, weightKg: null, restSec: null, durationSec: null, rpe: null, warmup: false, repsAlt: null, ...s })),

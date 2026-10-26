@@ -4,6 +4,7 @@
 // Ramka: 'A''T' | wersja | rodzaj | id wiadomości (4 B) | nr części | liczba części | dane
 // Odbiorca zbiera części o tym samym id w dowolnej kolejności; gdy ma wszystkie, rozpakowuje JSON.
 import { deflateSync, inflateSync, strToU8, strFromU8 } from 'fflate';
+import type { HSession, HSet } from './trainer';
 
 export const PROTOCOL_VERSION = 1;
 const MAGIC0 = 0x41, MAGIC1 = 0x54; // "AT"
@@ -26,6 +27,8 @@ export interface TransferSet {
 export type AltLabels = [string, string];
 export interface TransferWorkout {
   id: string; date: string; startTime: string | null; durationMin: number | null; name: string; notes: string;
+  /** Plan, z którego zaczęto trening (kontekst dla trenera); brak w starszych wersjach */
+  planId?: string | null;
   exercises: {
     exerciseId: string; notes: string; sets: TransferSet[];
     /** Identyfikator superserii: sąsiednie ćwiczenia z tym samym identyfikatorem robione na zmianę */
@@ -53,6 +56,35 @@ export interface PcBundle {
   rated?: Record<string, number>;
   /** Ćwiczenia zapisywane w dwóch wariantach powtórzeń (ostatnio użyte nazwy) */
   alt?: Record<string, AltLabels>;
+  /** Historia serii ćwiczeń (dla trenera i przycisku „Historia”); brak w starszych wersjach */
+  hist?: PackedHistory;
+}
+
+/**
+ * Historia w formie zwartej: konteksty [klucz, nazwa], a dla ćwiczenia lista [dzień od 2020-01-01, nr kontekstu, serie].
+ * Seria: [kg, powtórzenia, RPE, rozgrzewka 0/1, (powtórzenia łatwiejsze)].
+ */
+export interface PackedHistory { c: [string, string][]; e: Record<string, [number, number, HSet[]][]> }
+const DAY0 = Date.UTC(2020, 0, 1);
+const toDay = (iso: string) => Math.round((Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - DAY0) / 86_400_000);
+const fromDay = (n: number) => new Date(DAY0 + n * 86_400_000).toISOString().slice(0, 10);
+
+export function packHistory(byEx: Record<string, HSession[]>): PackedHistory {
+  const c: [string, string][] = [], idx = new Map<string, number>();
+  const e: PackedHistory['e'] = {};
+  for (const [ex, ss] of Object.entries(byEx)) {
+    e[ex] = ss.map(s => {
+      if (!idx.has(s.c)) { idx.set(s.c, c.length); c.push([s.c, s.n]); }
+      return [toDay(s.d), idx.get(s.c)!, s.s.map(x => (x[4] == null ? x.slice(0, 4) : x) as HSet)];
+    });
+  }
+  return { c, e };
+}
+export function unpackHistory(h: PackedHistory | undefined): Record<string, HSession[]> {
+  const out: Record<string, HSession[]> = {};
+  if (!h) return out;
+  for (const [ex, ss] of Object.entries(h.e)) out[ex] = ss.map(([d, ci, s]) => ({ d: fromDay(d), c: h.c[ci]?.[0] ?? 'x', n: h.c[ci]?.[1] ?? '', s }));
+  return out;
 }
 
 export type Bundle = PhoneBundle | PcBundle;

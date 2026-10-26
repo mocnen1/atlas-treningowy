@@ -1,44 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store/store';
-import { uid, type Db, type Workout } from '../store/types';
-import { isWorkingSet, ratedSessionCounts } from '../lib/stats';
+import { uid, type Workout } from '../store/types';
 import { QrScanner, QrSender } from '../shared/qr';
-import { Kind, bundleFromFile, encodeFrames, type Bundle, type PcBundle, type PhoneBundle, type TransferLast, type AltLabels, setScore } from '../shared/transfer';
+import { Kind, bundleFromFile, encodeFrames, type Bundle, type PcBundle, type PhoneBundle } from '../shared/transfer';
+import { buildPcBundle } from '../lib/pcBundle';
 import { fmtDate } from '../ui/common';
 
 const PHONE_URL = 'https://mocnen1.github.io/atlas-treningowy/';
-
-/** Paczka z planami, własnymi ćwiczeniami i ostatnimi wynikami dla aktywnego profilu. */
-export function buildPcBundle(db: Db, profileId: string): PcBundle {
-  const profile = db.profiles.find(p => p.id === profileId)!;
-  const plans = db.plans.filter(p => p.profileId === profileId);
-  const workouts = db.workouts.filter(w => w.profileId === profileId).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-  const inPlans = new Set(plans.flatMap(p => p.exercises.map(e => e.exerciseId)));
-  const last: Record<string, TransferLast> = {};
-  // Nazwy wariantów powtórzeń: z najnowszego treningu, w którym ćwiczenie je miało
-  const alt: Record<string, AltLabels> = {};
-  for (const w of workouts) for (const we of w.exercises) if (we.altLabels && !alt[we.exerciseId]) alt[we.exerciseId] = we.altLabels;
-  let recent = 0;
-  for (const w of workouts) {
-    for (const we of w.exercises) {
-      if (last[we.exerciseId]) continue;
-      const sets = we.sets.filter(isWorkingSet);
-      if (!sets.length) continue;
-      if (!inPlans.has(we.exerciseId) && recent >= 80) continue;
-      const best = sets.reduce((a, s) => (setScore(s.weightKg, s.reps, s.repsAlt) >= setScore(a.weightKg, a.reps, a.repsAlt) ? s : a), sets[0]);
-      last[we.exerciseId] = best.repsAlt != null ? [w.date, best.weightKg, best.reps, best.repsAlt] : [w.date, best.weightKg, best.reps];
-      if (!inPlans.has(we.exerciseId)) recent++;
-    }
-  }
-  return {
-    k: 'plans', v: 1, sentAt: new Date().toISOString(), profile: profile.name,
-    plans: plans.map(p => ({ id: p.id, name: p.name, exercises: p.exercises.map(e => ({ exerciseId: e.exerciseId, sets: e.sets, repsMin: e.repsMin, repsMax: e.repsMax, restSec: e.restSec, notes: e.notes, ...(e.supersetId ? { ss: e.supersetId } : {}), ...(e.altLabels ? { alt: e.altLabels } : {}) })) })),
-    custom: db.customExercises.map(c => ({ id: c.id, name: c.name, eq: c.equipmentPl, vol: c.countsForVolume, top: Object.keys(c.muscles)[0] ?? null })),
-    last,
-    rated: ratedSessionCounts(workouts),
-    alt,
-  };
-}
 
 type Received = { bundle: PhoneBundle; via: 'qr' | 'plik' };
 
@@ -139,6 +107,7 @@ function ImportPreview({ r, onClose }: { r: Received; onClose: () => void }) {
       for (const w of fresh) {
         const nw: Workout = {
           id: w.id, profileId: target.id, date: w.date, startTime: w.startTime, durationMin: w.durationMin, name: w.name, notes: w.notes,
+          planId: w.planId && d.plans.some(p => p.id === w.planId) ? w.planId : null,
           source: 'import', createdAt: new Date().toISOString(),
           exercises: w.exercises.map(e => ({ id: uid(), exerciseId: e.exerciseId, notes: e.notes, supersetId: e.ss ?? null, altLabels: e.alt ?? null, sets: e.sets.map(s => ({ id: uid(), ...s, repsAlt: s.repsAlt ?? null })) })),
         };
