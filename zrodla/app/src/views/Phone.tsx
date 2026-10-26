@@ -109,7 +109,7 @@ function ImportPreview({ r, onClose }: { r: Received; onClose: () => void }) {
           id: w.id, profileId: target.id, date: w.date, startTime: w.startTime, durationMin: w.durationMin, name: w.name, notes: w.notes,
           planId: w.planId && d.plans.some(p => p.id === w.planId) ? w.planId : null,
           source: 'import', createdAt: new Date().toISOString(),
-          exercises: w.exercises.map(e => ({ id: uid(), exerciseId: e.exerciseId, notes: e.notes, supersetId: e.ss ?? null, altLabels: e.alt ?? null, sets: e.sets.map(s => ({ id: uid(), ...s, repsAlt: s.repsAlt ?? null })) })),
+          exercises: w.exercises.map(e => ({ id: uid(), exerciseId: e.exerciseId, notes: e.notes, supersetId: e.ss ?? null, altLabels: e.alt ?? null, target: e.t ?? null, sets: e.sets.map(s => ({ id: uid(), ...s, repsAlt: s.repsAlt ?? null })) })),
         };
         d.workouts.push(nw);
       }

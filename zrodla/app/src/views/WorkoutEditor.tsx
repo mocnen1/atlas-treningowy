@@ -77,7 +77,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
         const prev = previous.get(exId);
         const first = prev?.[0];
         const alt = altOf.get(exId) ?? null;
-        d.exercises.push({ id: uid(), exerciseId: exId, notes: '', supersetId: null, altLabels: alt,
+        d.exercises.push({ id: uid(), exerciseId: exId, notes: '', supersetId: null, altLabels: alt, target: null,
           sets: [{ ...emptySet(), weightKg: first?.weightKg ?? null, reps: first?.reps ?? null, repsAlt: alt ? first?.repsAlt ?? 0 : null }] });
       }
     });
@@ -88,7 +88,7 @@ export function WorkoutEditor({ id, back, open }: { id: string; back: () => void
     const n = newWorkout(w.profileId);
     n.name = w.name;
     n.planId = w.planId;
-    n.exercises = w.exercises.map(e => ({ id: uid(), exerciseId: e.exerciseId, notes: '', supersetId: e.supersetId, altLabels: e.altLabels, sets: e.sets.map(s => ({ ...s, id: uid() })) }));
+    n.exercises = w.exercises.map(e => ({ id: uid(), exerciseId: e.exerciseId, notes: '', supersetId: e.supersetId, altLabels: e.altLabels, target: null, sets: e.sets.map(s => ({ ...s, id: uid() })) }));
     update(d => { d.workouts.push(n); });
     open(n.id);
   };

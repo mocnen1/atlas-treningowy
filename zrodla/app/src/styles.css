@@ -297,3 +297,6 @@ tr.ss-row td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .sources .mtable { font-size: 13px; }
 .sources-hint { margin: 10px 4px 0; }
 .trainer-plans { display: grid; gap: 6px; }
+.pill.out-beat { background: var(--ok); margin-left: 6px; }
+.pill.out-hit { background: var(--cold); margin-left: 6px; }
+.pill.out-miss { background: var(--hot); margin-left: 6px; }

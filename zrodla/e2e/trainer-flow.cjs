@@ -15,10 +15,10 @@ const seed = {
     // w planie Klata wyciskanie po zmęczeniu klatki: ok. 60 kg; w planie Plecy: 70 kg
     [press]: [
       S('2026-10-24', 'P2', 'Plecy', [[40, 10, null, 1], [70, 10, 8, 0], [70, 9, 9, 0]]),
-      S('2026-10-23', 'P1', 'Klata', [[60, 12, 8, 0], [60, 11, 9, 0]]),
+      { ...S('2026-10-23', 'P1', 'Klata', [[60, 12, 8, 0], [60, 11, 9, 0]]), t: [60, 10, null, 8] },
       S('2026-10-17', 'P2', 'Plecy', [[70, 9, 8, 0], [70, 8, 9, 0]]),
-      S('2026-10-16', 'P1', 'Klata', [[60, 11, 8, 0], [60, 10, 9, 0]]),
-      S('2026-10-09', 'P1', 'Klata', [[57.5, 12, 8, 0], [57.5, 11, 9, 0]]),
+      { ...S('2026-10-16', 'P1', 'Klata', [[60, 11, 8, 0], [60, 10, 9, 0]]), t: [57.5, 12, null, 8] },
+      { ...S('2026-10-09', 'P1', 'Klata', [[57.5, 12, 8, 0], [57.5, 11, 9, 0]]), t: [57.5, 10, null, 8] },
       S('2026-10-10', 'P2', 'Plecy', [[67.5, 10, 8, 0]]),
     ],
     [pull]: [S('2026-10-22', 'P2', 'Plecy', [[55, 10, 8, 0]]), S('2026-10-15', 'P2', 'Plecy', [[52.5, 12, 8, 0]]), S('2026-10-08', 'P2', 'Plecy', [[52.5, 10, 8, 0]])],
@@ -44,7 +44,7 @@ app.whenReady().then(async () => {
     await click('Dlaczego?'); await sleep(200);
     await shot('t1-klata-trener');
     await click('Wpisz cel'); await sleep(300);
-    let s = await state(); report.setsAfterApply = s.active.exercises[0].sets.map(x => [x.kg, x.reps]);
+    let s = await state(); report.tgt = s.active.exercises[0].tgt; report.setsAfterApply = s.active.exercises[0].sets.map(x => [x.kg, x.reps]);
     await click('Historia'); await sleep(400); await shot('t2-historia');
     await click('Zamknij'); await sleep(300);
     // zamiennik: dodane ćwiczenie spoza planu – „Ostatnio” w wyborze i szacunek trenera z innego planu

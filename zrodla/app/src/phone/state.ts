@@ -1,7 +1,7 @@
 // Stan aplikacji na telefonie. Trzymany w localStorage (zapis po każdej zmianie).
 import catalogJson from './catalog.json';
 import musclesJson from '../data/muscles.json';
-import { contextKey, suggest, type HSession, type HSet, type TrainerState } from '../shared/trainer';
+import { calibrateRir, contextKey, suggest, toTarget, type HSession, type HSet, type HTarget, type TrainerState } from '../shared/trainer';
 import { localDate, localTime, setScore, unpackHistory, type AltLabels, type PcBundle, type PhoneBundle, type TransferCustom, type TransferLast, type TransferPlan, type TransferWorkout } from '../shared/transfer';
 
 export interface CatalogItem { id: string; name: string; nameEn: string; eq: string; vol: boolean; top: string | null; verified: boolean; img: boolean; custom?: boolean }
@@ -21,6 +21,8 @@ export interface PExercise {
   ss?: string | null;
   /** Dwa warianty powtórzeń w serii: [pełny, łatwiejszy] */
   alt?: AltLabels | null;
+  /** Cel trenera z chwili rozpoczęcia ćwiczenia – zapisywany, żeby trener mógł porównać cel z wynikiem */
+  tgt?: HTarget | null;
 }
 export interface PWorkout { id: string; name: string; planId: string | null; startedAt: number; endedAt: number | null; notes: string; exercises: PExercise[]; sentAt: number | null }
 /** Przerwa po serii. `next` = przejście w superserii do kolejnego ćwiczenia (bez odliczania i sygnału). */
@@ -104,10 +106,18 @@ export function newExercise(s: PhoneState, exerciseId: string, plan?: { sets: nu
 }
 
 export function startWorkout(s: PhoneState, plan: TransferPlan | null): PWorkout {
-  return {
+  const w: PWorkout = {
     id: uid(), name: plan?.name ?? '', planId: plan?.id ?? null, startedAt: Date.now(), endedAt: null, notes: '', sentAt: null,
     exercises: plan ? plan.exercises.map(e => newExercise(s, e.exerciseId, e, plan.id)) : [],
   };
+  w.exercises = w.exercises.map(e => withTarget(s, w, e));
+  return w;
+}
+
+/** Zapamiętuje przy ćwiczeniu cel trenera (jeśli trener ma dość danych). */
+export function withTarget(s: PhoneState, w: Pick<PWorkout, 'planId' | 'name'>, e: PExercise): PExercise {
+  const g = trainerFor(s, w, e).suggestion;
+  return { ...e, tgt: g ? toTarget(g) : null };
 }
 
 /** Szacowany czas trwania serii (s), gdy nie wiemy, kiedy się zaczęła: ~3 s na powtórzenie. */
@@ -121,7 +131,7 @@ export function toTransfer(w: PWorkout): TransferWorkout {
     name: w.name, notes: w.notes, ...(w.planId ? { planId: w.planId } : {}),
     exercises: w.exercises.map(e => ({
       exerciseId: e.exerciseId, notes: e.notes,
-      ...(e.ss ? { ss: e.ss } : {}), ...(e.alt ? { alt: e.alt } : {}),
+      ...(e.ss ? { ss: e.ss } : {}), ...(e.alt ? { alt: e.alt } : {}), ...(e.tgt ? { t: e.tgt } : {}),
       sets: e.sets.filter(x => x.doneAt).map(x => ({ reps: x.reps, weightKg: x.kg, restSec: x.restSec, durationSec: x.dur, rpe: x.rpe, warmup: x.warmup, ...(e.alt ? { repsAlt: x.repsAlt ?? 0 } : {}) })),
     })).filter(e => e.sets.length),
   };
@@ -213,7 +223,7 @@ export function exerciseHistory(s: PhoneState, exerciseId: string): HSession[] {
       if (e.exerciseId !== exerciseId) continue;
       const done = e.sets.filter(x => x.doneAt);
       if (!done.length) continue;
-      local.push({ d: localDate(w.startedAt), c, n: w.name || 'Trening', s: done.map(x => [x.kg, x.dur != null && x.reps == null ? null : x.reps, x.rpe, x.warmup ? 1 : 0, ...(e.alt ? [x.repsAlt ?? 0] : [])] as HSet) });
+      local.push({ d: localDate(w.startedAt), c, n: w.name || 'Trening', s: done.map(x => [x.kg, x.dur != null && x.reps == null ? null : x.reps, x.rpe, x.warmup ? 1 : 0, ...(e.alt ? [x.repsAlt ?? 0] : [])] as HSet), ...(e.tgt ? { t: e.tgt } : {}) });
     }
   }
   return [...local, ...(s.hist[exerciseId] ?? [])].sort((a, b) => b.d.localeCompare(a.d));
@@ -222,5 +232,18 @@ export function exerciseHistory(s: PhoneState, exerciseId: string): HSession[] {
 /** Podpowiedź trenera dla ćwiczenia w bieżącym treningu. */
 export function trainerFor(s: PhoneState, w: Pick<PWorkout, 'planId' | 'name'>, e: PExercise): TrainerState {
   const range: [number | null, number | null] | null = e.repsMin != null || e.repsMax != null ? [e.repsMin, e.repsMax] : null;
-  return suggest(exerciseHistory(s, e.exerciseId), workoutContext(s, w), range, !!e.alt, s.settings.kgStep);
+  return suggest(exerciseHistory(s, e.exerciseId), workoutContext(s, w), range, !!e.alt, s.settings.kgStep, { rirOffset: rirCalibration(s).offset });
+}
+
+/** Korekta skali trudności z całej historii (wszystkie ćwiczenia); liczona raz na stan historii. */
+const calCache = new WeakMap<object, WeakMap<object, { offset: number; pairs: number }>>();
+export function rirCalibration(s: PhoneState): { offset: number; pairs: number } {
+  let m = calCache.get(s.hist); if (!m) { m = new WeakMap(); calCache.set(s.hist, m); }
+  let c = m.get(s.history);
+  if (!c) {
+    const ids = new Set([...Object.keys(s.hist), ...s.history.flatMap(w => w.exercises.map(e => e.exerciseId))]);
+    c = calibrateRir(Object.fromEntries([...ids].map(id => [id, exerciseHistory(s, id)])));
+    m.set(s.history, c);
+  }
+  return c;
 }

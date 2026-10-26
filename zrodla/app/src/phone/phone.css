@@ -239,3 +239,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .p-hist-h span { color: var(--muted); font-size: 13px; }
 .p-pick .p-pick-last { grid-column: 2; font: 500 12px var(--f-mono); color: var(--accent); }
 .p-coach-h .p-btn { white-space: nowrap; }
+.p-outs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.p-outs i, .p-hist-t i { font-style: normal; font: 600 11px var(--f-mono); border-radius: 5px; padding: 1px 5px; color: #fff; }
+.o-beat { background: var(--ok); } .o-hit { background: var(--cold); } .o-miss { background: var(--hot); }
+.p-outs b { font: 600 11px var(--f-mono); text-transform: uppercase; margin-left: 4px; }
+.pace-fast { color: var(--ok); } .pace-slow { color: var(--hot); }
+.p-hist-t { margin-left: auto; display: inline-flex; gap: 5px; align-items: center; font: 12px var(--f-mono); color: var(--muted); }

@@ -1,7 +1,7 @@
 # Atlas Treningowy – kod źródłowy
 
 Dziennik treningowy z modelem 3D mięśni: aplikacja na Windows (Electron) i aplikacja na iPhone'a (PWA, ten sam kod React).
-Wersja 0.9.0.
+Wersja 0.10.0.
 
 ## Struktura
 
@@ -24,7 +24,7 @@ Wymagane: Node.js 22.
 ```bash
 cd app
 npm ci                      # zależności
-npm test                    # testy (powinno być 33/33)
+npm test                    # testy (powinno być 38/38)
 npm run build               # aplikacja na Windows → app/dist/index.html
 npm run build:phone         # aplikacja na telefon → app/dist-phone/ (zawartość wgrywana do katalogu głównego repozytorium)
 
@@ -44,6 +44,10 @@ w innym planie robione jest przy innym zmęczeniu. Kontekst = plan, z którego z
 nazwie albo sama nazwa. Poziomy: „z tego planu” (≥ 3 ocenione treningi), „wstępnie” (1–2 z tego planu), „szacunek z innego planu”
 (przeliczony stosunkiem szacowanego 1RM między planami, ograniczonym do 0,75–1,15). Reguły wg zapasu powtórzeń (RPE) i zakresu
 powtórzeń z planu (podwójna progresja); przy spadku formy na dwóch treningach z rzędu bez podnoszenia ciężaru.
+Dopasowanie do osoby: cel trenera jest zapisywany przy ćwiczeniu (telefon → komputer → historia) i porównywany z wynikiem
+(przebity / trafiony / nietrafiony); 3 przebite → szybsze tempo, 2 z 3 nietrafione → wolniejsze. Korekta skali trudności
+z porównania ocen zapasu z seriami do upadku w ciągu 14 dni (od 4 porównań, maks. ±1,5 powt.). Pojedynczy słabszy
+trening (≥ 5% poniżej dwóch poprzednich) jest pomijany przy liczeniu celu.
 Historia serii idzie z komputera na telefon razem z planami (`lib/pcBundle.ts`, format zwarty w `shared/transfer.ts`).
 
 ## Baza ćwiczeń

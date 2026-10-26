@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QrScanner, QrSender } from '../shared/qr';
 import { Kind, bundleToFile, fmtRepsAlt, type AltLabels, type PcBundle } from '../shared/transfer';
 import { EFFORT_LEVELS, TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
-import type { HSet, TrainerState } from '../shared/trainer';
+import { outcome, type HSet, type TrainerState } from '../shared/trainer';
 import { ExerciseAnim, ExerciseThumb, imgUrl } from '../shared/ExerciseImage';
 import {
   CATALOG, afterSet, applyPcBundle, estSetSec, supersetOf, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
-  exerciseHistory, lastInContext, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
+  exerciseHistory, lastInContext, withTarget, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
 } from './state';
 
 type Screen = { s: 'home' } | { s: 'workout' } | { s: 'send'; ids: string[] } | { s: 'receive' } | { s: 'settings' } | { s: 'view'; id: string };
@@ -442,7 +442,7 @@ function WorkoutScreen({ st, update, go }: P) {
       {picker && <ExercisePicker st={st} onClose={() => setPicker(false)} onPick={(id, custom) => {
         update(s => {
           const s2 = custom ? { ...s, custom: [...s.custom, custom] } : s;
-          return { ...s2, active: s2.active ? { ...s2.active, exercises: [...s2.active.exercises, newExercise(s2, id, undefined, workoutContext(s2, s2.active))] } : s2.active };
+          return { ...s2, active: s2.active ? { ...s2.active, exercises: [...s2.active.exercises, withTarget(s2, s2.active, newExercise(s2, id, undefined, workoutContext(s2, s2.active)))] } : s2.active };
         });
         setPicker(false);
         setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 50);
@@ -470,6 +470,7 @@ function EffortBar({ value, onChange }: { value: number | null; onChange: (rpe: 
 }
 
 const LEVEL_LABEL = { plan: 'z tego planu', mixed: 'wstępnie', other: 'szacunek z innego planu' } as const;
+const OUT_LABEL = { beat: 'przebity', hit: 'trafiony', miss: 'nietrafiony' } as const;
 
 /** Podpowiedź trenera albo postęp zbierania danych (osobno dla tego planu i dla innych). */
 function TrainerBox({ tr, alt, onApply }: { tr: TrainerState; alt: [string, string] | null; onApply?: () => void }) {
@@ -490,6 +491,10 @@ function TrainerBox({ tr, alt, onApply }: { tr: TrainerState; alt: [string, stri
       <div className="p-coach-h"><span>Trener · {LEVEL_LABEL[g.level]}</span>{onApply && <button className="p-btn sm" onClick={onApply}>Wpisz cel</button>}</div>
       <b>Cel: {target}</b>
       <span className="p-sub">ostatnia seria na ok. {effortPct(g.rpe)}% ({g.rpe >= 9 ? '1 w zapasie' : '2 w zapasie'})</span>
+      {g.outcomes.length > 0 && (
+        <span className="p-sub p-outs">Ostatnie cele: {g.outcomes.map((o, i) => <i key={i} className={`o-${o}`} title={OUT_LABEL[o]}>{OUT_LABEL[o]}</i>)}
+          {g.pace !== 'normal' && <b className={`pace-${g.pace}`}>{g.pace === 'fast' ? 'tempo: szybciej' : 'tempo: wolniej'}</b>}</span>
+      )}
       {g.warn && <span className="p-sub warn">{g.warn}</span>}
       <button className="p-link sm" onClick={() => setMore(m => !m)}>{more ? 'Ukryj' : 'Dlaczego?'}</button>
       {more && <span className="p-sub">{g.reason}</span>}
@@ -507,7 +512,8 @@ function HistorySheet({ st, exerciseId, ctx, alt, onClose }: { st: PhoneState; e
       <h2>{title}</h2>
       {list.map((s, i) => (
         <div key={i} className="p-hist">
-          <div className="p-hist-h"><b>{fmtDay(s.d)}</b><span>{s.n}</span></div>
+          <div className="p-hist-h"><b>{fmtDay(s.d)}</b><span>{s.n}</span>
+            {s.t && <span className="p-hist-t">cel {s.t[0] != null ? `${fmtKg(s.t[0])} × ` : ''}{s.t[2] != null ? `${s.t[1]} + ${s.t[2]}` : s.t[1]}{(() => { const o = outcome(s); return o ? <i className={`o-${o}`}>{OUT_LABEL[o]}</i> : null; })()}</span>}</div>
           <div className="p-done-list">{s.s.map((x, k) => <span key={k} className={x[3] ? 'warm' : ''}>{x[3] ? 'R · ' : ''}{fmtSet(x)}</span>)}</div>
         </div>
       ))}

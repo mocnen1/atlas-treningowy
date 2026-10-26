@@ -3,7 +3,8 @@ import { useStore } from '../store/store';
 import { allReps, e1rm, isWorkingSet, sessionEffort } from '../lib/stats';
 import { fmtRepsAlt, setScore } from '../shared/transfer';
 import { TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
-import { contextKey, suggest, type HSession, type HSet } from '../shared/trainer';
+import { calibrateRir, outcome, suggest, type HSet } from '../shared/trainer';
+import { sessionsByExercise } from '../lib/pcBundle';
 import { ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, fmtDate, fmtNum, useFilteredExercises } from '../ui/common';
 import { ExerciseEditor } from './ExerciseEditor';
 import { ExerciseAnim } from '../shared/ExerciseImage';
@@ -20,11 +21,11 @@ export function ExercisesView() {
   const history = useMemo(() => {
     if (!sel) return [];
     return db.workouts.filter(w => w.profileId === profile!.id)
-      .flatMap(w => w.exercises.filter(e => e.exerciseId === sel).map(e => ({ w, sets: e.sets.filter(isWorkingSet), labels: e.altLabels })))
+      .flatMap(w => w.exercises.filter(e => e.exerciseId === sel).map(e => ({ w, sets: e.sets.filter(isWorkingSet), labels: e.altLabels, target: e.target })))
       .filter(h => h.sets.length)
       .map(h => {
         const best = h.sets.reduce((a, s) => (setScore(s.weightKg, s.reps, s.repsAlt) > setScore(a.weightKg, a.reps, a.repsAlt) ? s : a), h.sets[0]);
-        return { date: h.w.date, labels: h.labels, sets: h.sets, effort: sessionEffort(h.sets), best, est: e1rm(best.weightKg ?? 0, best.reps ?? 0), vol: h.sets.reduce((a, s) => a + allReps(s) * (s.weightKg ?? 0), 0) };
+        return { date: h.w.date, labels: h.labels, target: h.target, plan: h.w.name, out: outcome({ d: h.w.date, c: '', n: '', s: h.sets.map(s => [s.weightKg, s.reps, s.rpe, 0, s.repsAlt] as HSet), t: h.target }), sets: h.sets, effort: sessionEffort(h.sets), best, est: e1rm(best.weightKg ?? 0, best.reps ?? 0), vol: h.sets.reduce((a, s) => a + allReps(s) * (s.weightKg ?? 0), 0) };
       })
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [db.workouts, sel, profile]);
@@ -63,11 +64,14 @@ export function ExercisesView() {
               <TrainerByPlan exerciseId={sel!} />
               {history.length === 0 ? <p className="note">Jeszcze nie wykonywałeś tego ćwiczenia w profilu {profile!.name}.</p> : (
                 <table className="mtable">
-                  <thead><tr><th>Data</th><th>Najlepsza seria</th><th className="r">Szac. 1RM</th><th className="r">Serie</th><th className="r">Trudność</th></tr></thead>
+                  <thead><tr><th>Data</th><th>Trening</th><th>Najlepsza seria</th><th>Cel trenera</th><th className="r">Szac. 1RM</th><th className="r">Serie</th><th className="r">Trudność</th></tr></thead>
                   <tbody>{history.slice(0, 30).map((h, i) => (
                     <tr key={i}>
                       <td>{fmtDate(h.date)}</td>
+                      <td className="muted">{h.plan || '–'}</td>
                       <td className="num">{h.best.weightKg != null ? `${fmtNum(h.best.weightKg)} kg × ` : ''}{h.best.reps == null && h.best.repsAlt == null ? (h.best.durationSec ? `${h.best.durationSec} s` : '–') : fmtRepsAlt(h.best.reps, h.best.repsAlt, h.labels)}</td>
+                      <td className="num">{h.target ? <>{h.target[0] != null ? `${fmtNum(h.target[0])} × ` : ''}{h.target[2] != null ? `${h.target[1]} + ${h.target[2]}` : h.target[1]}
+                        {h.out && <span className={`pill out-${h.out}`}>{{ beat: 'przebity', hit: 'trafiony', miss: 'nietrafiony' }[h.out]}</span>}</> : <span className="muted">–</span>}</td>
                       <td className="r num"><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                         <i className="meter" style={{ width: 50, ['--w' as any]: `${(h.est / maxEst) * 100}%` }} />{h.est ? fmtNum(h.est) : '–'}</span></td>
                       <td className="r num">{h.sets.length}</td>
@@ -96,20 +100,17 @@ function TrainerByPlan({ exerciseId }: { exerciseId: string }) {
   const { db, profile } = useStore();
   const plans = db.plans.filter(p => p.profileId === profile!.id);
   const rows = useMemo(() => {
-    const sessions: HSession[] = [];
+    const all = sessionsByExercise(db, profile!.id);
+    const cal = calibrateRir(all);
+    const sessions = all[exerciseId] ?? [];
     const names = new Map<string, string>(plans.map(p => [p.id, p.name]));
-    for (const w of db.workouts.filter(x => x.profileId === profile!.id)) {
-      const c = contextKey(w.planId, w.name, plans);
-      if (!names.has(c)) names.set(c, w.name || 'Bez nazwy');
-      for (const e of w.exercises) if (e.exerciseId === exerciseId && e.sets.some(isWorkingSet))
-        sessions.push({ d: w.date, c, n: names.get(c)!, s: e.sets.map(s => [s.weightKg, s.reps, s.rpe, s.warmup ? 1 : 0, ...(s.repsAlt != null ? [s.repsAlt] : [])] as HSet) });
-    }
+    for (const x of sessions) if (!names.has(x.c)) names.set(x.c, x.n);
     const ctxs = new Set(sessions.map(s => s.c));
     for (const p of plans) if (p.exercises.some(e => e.exerciseId === exerciseId)) ctxs.add(p.id);
     const alt = db.workouts.some(w => w.exercises.some(e => e.exerciseId === exerciseId && e.altLabels));
     return [...ctxs].map(c => {
       const pe = plans.find(p => p.id === c)?.exercises.find(e => e.exerciseId === exerciseId);
-      return { c, name: names.get(c) ?? c, tr: suggest(sessions, c, pe ? [pe.repsMin, pe.repsMax] : null, alt, 2.5) };
+      return { c, name: names.get(c) ?? c, tr: suggest(sessions, c, pe ? [pe.repsMin, pe.repsMax] : null, alt, 2.5, { rirOffset: cal.offset }) };
     }).sort((a, b) => b.tr.ctxRated - a.tr.ctxRated);
   }, [db.workouts, db.plans, exerciseId, profile]);
   if (!rows.length) return <div className="trainer">Trener: brak treningów z tym ćwiczeniem.</div>;
