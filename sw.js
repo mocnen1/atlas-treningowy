@@ -1,8 +1,22 @@
-// Atlas Treningowy 0.10.1-202610262049
-const CACHE = 'atlas-0.10.1-202610262049';
+// Atlas Treningowy 0.10.2-202610301156
+const CACHE = 'atlas-0.10.2-202610301156';
 const IMG = 'atlas-img';
 const FILES = ["./","./index.html","./manifest.webmanifest","./icon-180.png","./icon-192.png","./icon-512.png"];
-self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
+// Instalacja: pliki zawsze prosto z serwera (z pominięciem pamięci przeglądarki) i sprawdzenie, że strona to naprawdę ta wersja.
+// Gdy serwer jeszcze podaje starą stronę (GitHub Pages rozsyła zmiany do kilku minut), instalacja się nie udaje i telefon spróbuje ponownie.
+self.addEventListener('install', e => { e.waitUntil((async () => {
+  await caches.delete(CACHE); // resztki po nieudanej próbie
+  const got = [];
+  for (const f of FILES) {
+    const res = await fetch(new Request(f, { cache: 'reload' }));
+    if (!res.ok) throw new Error('brak ' + f);
+    if ((res.headers.get('content-type') || '').includes('html') && !(await res.clone().text()).includes('0.10.2-202610301156')) throw new Error('serwer podaje jeszcze starą wersję');
+    got.push([f, res]);
+  }
+  const c = await caches.open(CACHE);
+  for (const [f, res] of got) await c.put(f, res);
+  await self.skipWaiting();
+})()); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== IMG).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
   const r = e.request;

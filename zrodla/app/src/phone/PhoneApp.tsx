@@ -807,9 +807,35 @@ function SettingsScreen({ st, update, go }: P) {
           <h2>Dane w telefonie</h2>
           <p className="p-note">Treningów zapisanych w telefonie: {st.history.length} (w tym niewysłanych: {st.history.filter(w => !w.sentAt).length}). Telefon trzyma ostatnie 60. Usunięcie aplikacji z ekranu początkowego kasuje jej dane – wysyłaj treningi do komputera na bieżąco.</p>
         </section>
+        <ForceUpdate />
         <p className="p-note">Atlas Treningowy · wersja {__APP_VERSION__}</p>
       </main>
     </>
+  );
+}
+
+/** Ręczna aktualizacja: usuwa kopię aplikacji z pamięci telefonu i pobiera najnowszą. Treningi i plany zostają (są zapisane osobno). */
+function ForceUpdate() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const run = async () => {
+    if (!navigator.onLine) { setMsg('Brak internetu – połącz się i spróbuj ponownie.'); return; }
+    setBusy(true);
+    try {
+      const regs = await navigator.serviceWorker?.getRegistrations?.() ?? [];
+      await Promise.all(regs.map(r => r.unregister()));
+      const keys = 'caches' in window ? await caches.keys() : [];
+      await Promise.all(keys.filter(k => k !== 'atlas-img').map(k => caches.delete(k)));
+      location.replace(location.pathname + '?v=' + Date.now());
+    } catch { setBusy(false); setMsg('Nie udało się – zamknij aplikację całkiem i otwórz ponownie.'); }
+  };
+  return (
+    <section className="p-sec">
+      <h2>Aktualizacja</h2>
+      <p className="p-note">Aplikacja aktualizuje się sama po powrocie do niej. Jeśli mimo to widzisz starą wersję, wymuś pobranie najnowszej. Treningi, plany i zdjęcia zostają w telefonie.</p>
+      <button className="p-btn wide" disabled={busy} onClick={run}>{busy ? 'Pobieranie…' : 'Wymuś aktualizację'}</button>
+      {msg && <p className="p-note" style={{ color: 'var(--hot)' }}>{msg}</p>}
+    </section>
   );
 }
 declare const __APP_VERSION__: string;
