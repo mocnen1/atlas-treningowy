@@ -1,5 +1,5 @@
-// Atlas Treningowy 0.11.0-202610311305
-const CACHE = 'atlas-0.11.0-202610311305';
+// Atlas Treningowy 0.11.1-202610311544
+const CACHE = 'atlas-0.11.1-202610311544';
 const IMG = 'atlas-img';
 const FILES = ["./","./index.html","./manifest.webmanifest","./icon-180.png","./icon-192.png","./icon-512.png"];
 // Instalacja: pliki zawsze prosto z serwera (z pominięciem pamięci przeglądarki) i sprawdzenie, że strona to naprawdę ta wersja.
@@ -10,7 +10,7 @@ self.addEventListener('install', e => { e.waitUntil((async () => {
   for (const f of FILES) {
     const res = await fetch(new Request(f, { cache: 'reload' }));
     if (!res.ok) throw new Error('brak ' + f);
-    if ((res.headers.get('content-type') || '').includes('html') && !(await res.clone().text()).includes('0.11.0-202610311305')) throw new Error('serwer podaje jeszcze starą wersję');
+    if ((res.headers.get('content-type') || '').includes('html') && !(await res.clone().text()).includes('0.11.1-202610311544')) throw new Error('serwer podaje jeszcze starą wersję');
     got.push([f, res]);
   }
   const c = await caches.open(CACHE);

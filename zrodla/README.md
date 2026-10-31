@@ -1,7 +1,7 @@
 # Atlas Treningowy – kod źródłowy
 
 Dziennik treningowy z modelem 3D mięśni: aplikacja na Windows (Electron) i aplikacja na iPhone'a (PWA, ten sam kod React).
-Wersja 0.11.0.
+Wersja 0.11.1.
 
 ## Struktura
 

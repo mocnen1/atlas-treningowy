@@ -9,6 +9,11 @@ export const CATALOG: CatalogItem[] = (catalogJson as [string, string, string, s
   .map(([id, name, nameEn, eq, vol, top, v, img]) => ({ id, name, nameEn, eq, vol: !!vol, top, verified: !!v, img: !!img }));
 const MUSCLE_NAMES: Record<string, string> = Object.fromEntries(musclesJson.muscles.map(m => [m.id, m.name.replace(/\s*\(.*\)$/, '')]));
 export const muscleName = (id: string | null) => (id ? MUSCLE_NAMES[id] ?? '' : '');
+/** Partie mięśni do przeglądania ćwiczeń i przypisanie mięśnia do partii */
+export const MUSCLE_GROUPS: { id: string; name: string }[] = musclesJson.groups;
+export const MUSCLE_GROUP: Record<string, string> = Object.fromEntries(musclesJson.muscles.map(m => [m.id, m.group]));
+/** Sprzęt w kolejności od najczęstszego */
+export const EQUIPMENT: string[] = (() => { const n = new Map<string, number>(); for (const c of CATALOG) n.set(c.eq, (n.get(c.eq) ?? 0) + 1); return [...n.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e); })();
 
 export interface PSet {
   id: string; kg: number | null; reps: number | null; dur: number | null; rpe: number | null; warmup: boolean; doneAt: number | null; restSec: number | null;

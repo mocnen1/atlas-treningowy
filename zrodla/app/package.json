@@ -1,7 +1,7 @@
 {
   "name": "atlas-treningowy",
   "productName": "Atlas Treningowy",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "private": true,
   "description": "Dziennik treningowy z modelem 3D mięśni",
   "main": "electron/main.cjs",

@@ -253,3 +253,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .p-coach-sets b { font-size: 16px; white-space: nowrap; }
 .p-coach-sets .p-sub { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .p-hist-goal { font: 12px var(--f-mono); color: var(--muted); }
+.p-filter { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.p-filter::-webkit-scrollbar { display: none; }
+.p-filter .p-chip { flex: none; white-space: nowrap; }
+.p-filter.wrap { flex-wrap: wrap; overflow: visible; }

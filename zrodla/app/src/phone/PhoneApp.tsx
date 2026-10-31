@@ -5,7 +5,7 @@ import { EFFORT_LEVELS, TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort
 import { outcome, type HSet, type TrainerState } from '../shared/trainer';
 import { ExerciseAnim, ExerciseThumb, imgUrl } from '../shared/ExerciseImage';
 import {
-  CATALOG, afterSet, applyPcBundle, estSetSec, supersetOf, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
+  CATALOG, EQUIPMENT, MUSCLE_GROUP, MUSCLE_GROUPS, afterSet, applyPcBundle, estSetSec, supersetOf, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
   exerciseHistory, fillSets, lastInContext, lastSetsInContext, setsAtTarget, withTarget, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
 } from './state';
 
@@ -202,6 +202,8 @@ function WorkoutScreen({ st, update, go }: P) {
   const w = st.active!;
   const now = useNow(true, 500);
   const [picker, setPicker] = useState(false);
+  /** Ćwiczenie do zamiany (id ćwiczenia w treningu) */
+  const [swapFor, setSwapFor] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [openSet, setOpenSet] = useState<string | null>(null);
   /** Seria właśnie odhaczona – pod nią pokazujemy szybki wybór trudności */
@@ -356,7 +358,7 @@ function WorkoutScreen({ st, update, go }: P) {
                     for (let k = 0; k < ex2.length; k++) if (ex2[k].ss && supersetOf(ex2, k).length < 2) ex2[k] = { ...ex2[k], ss: null };
                     return { ...x, exercises: ex2 };
                   }) : undefined}
-                  altOn={!!alt} onAlt={() => setAltEdit(e.id)}
+                  altOn={!!alt} onAlt={() => setAltEdit(e.id)} onSwap={() => setSwapFor(e.id)}
                   onRemove={() => setW(x => ({ ...x, exercises: x.exercises.filter(y => y.id !== e.id) }))} />
               </div>
               <TrainerBox tr={tr} alt={alt} atTarget={setsAtTarget(e)} last={lastSetsInContext(st, e.exerciseId, workoutContext(st, w))?.sets ?? (last ? [[last[1], last[2], last[3] ?? null]] : null)}
@@ -447,6 +449,24 @@ function WorkoutScreen({ st, update, go }: P) {
         });
         setPicker(false);
         setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 50);
+      }} />}
+      {swapFor && <ExercisePicker st={st} title="Zamień ćwiczenie" onClose={() => setSwapFor(null)} onPick={(id, custom) => {
+        update(s => {
+          const s2 = custom ? { ...s, custom: [...s.custom, custom] } : s;
+          if (!s2.active) return s2;
+          const a = s2.active, i = a.exercises.findIndex(x => x.id === swapFor);
+          if (i < 0) return s2;
+          const old = a.exercises[i];
+          const left = old.sets.filter(z => !z.doneAt);
+          const fresh = withTarget(s2, a, newExercise(s2, id, { sets: Math.max(1, left.filter(z => !z.warmup).length), repsMin: old.repsMin, repsMax: old.repsMax, restSec: old.restSec, notes: '', ss: old.ss }, workoutContext(s2, a)));
+          const done = old.sets.some(z => z.doneAt);
+          // zrobione serie zostają przy starym ćwiczeniu; nowe ćwiczenie dostaje pozostałe serie
+          const ex = done
+            ? [...a.exercises.slice(0, i), { ...old, sets: old.sets.filter(z => z.doneAt) }, fresh, ...a.exercises.slice(i + 1)]
+            : [...a.exercises.slice(0, i), fresh, ...a.exercises.slice(i + 1)];
+          return { ...s2, active: { ...a, exercises: ex } };
+        });
+        setSwapFor(null);
       }} />}
     </>
   );
@@ -551,7 +571,7 @@ function HistorySheet({ st, exerciseId, ctx, alt, onClose }: { st: PhoneState; e
   );
 }
 
-function ExMenu({ onUp, onRemove, onLink, onUnlink, onAlt, altOn }: { onUp?: () => void; onRemove: () => void; onLink?: () => void; onUnlink?: () => void; onAlt: () => void; altOn: boolean }) {
+function ExMenu({ onUp, onRemove, onLink, onUnlink, onAlt, altOn, onSwap }: { onUp?: () => void; onRemove: () => void; onLink?: () => void; onUnlink?: () => void; onAlt: () => void; altOn: boolean; onSwap: () => void }) {
   const [open, setOpen] = useState(false);
   const [ask, setAsk] = useState(false);
   const act = (f: () => void) => () => { f(); setOpen(false); };
@@ -560,6 +580,7 @@ function ExMenu({ onUp, onRemove, onLink, onUnlink, onAlt, altOn }: { onUp?: () 
       <button className="p-icon" onClick={() => { setOpen(o => !o); setAsk(false); }} aria-label="Opcje ćwiczenia">⋯</button>
       {open && (
         <div className="p-pop">
+          <button onClick={act(onSwap)}>Zamień ćwiczenie…</button>
           {onUp && <button onClick={act(onUp)}>Przesuń wyżej</button>}
           {onLink && <button onClick={act(onLink)}>Superseria z następnym</button>}
           {onUnlink && <button onClick={act(onUnlink)}>Odłącz z superserii</button>}
@@ -614,35 +635,50 @@ function Stepper({ value, step, onChange, label, decimals, suffix }: { value: nu
   );
 }
 
-function ExercisePicker({ st, onClose, onPick }: { st: PhoneState; onClose: () => void; onPick: (id: string, custom?: PhoneState['custom'][number]) => void }) {
+function ExercisePicker({ st, onClose, onPick, title = 'Dodaj ćwiczenie' }: { st: PhoneState; onClose: () => void; onPick: (id: string, custom?: PhoneState['custom'][number]) => void; title?: string }) {
   const [q, setQ] = useState('');
+  const [group, setGroup] = useState<string | null>(null);
+  const [eq, setEq] = useState<string | null>(null);
+  const [extra, setExtra] = useState(false);
   const recent = useMemo(() => {
     const ids: string[] = [];
     for (const w of st.history) for (const e of w.exercises) if (!ids.includes(e.exerciseId)) ids.push(e.exerciseId);
     for (const id of Object.keys(st.last)) if (!ids.includes(id)) ids.push(id);
     return ids;
   }, [st.history, st.last]);
-  const all = useMemo(() => [...st.custom.map(c => lookupExercise(st, c.id)!), ...CATALOG.filter(c => c.vol)], [st]);
+  const all = useMemo(() => [...st.custom.map(c => lookupExercise(st, c.id)!), ...CATALOG.filter(c => extra || c.vol)], [st, extra]);
+  const browsing = !q.trim() && (group || eq);
   const list = useMemo(() => {
     const t = norm(q.trim());
-    if (!t) return recent.map(id => lookupExercise(st, id)).filter(Boolean).slice(0, 30) as typeof all;
+    const inFilter = (c: typeof all[number]) => (!group || (c.top != null && MUSCLE_GROUP[c.top] === group)) && (!eq || c.eq === eq);
+    if (!t && !group && !eq) return recent.map(id => lookupExercise(st, id)).filter(Boolean).slice(0, 30) as typeof all;
+    if (!t) return all.filter(inFilter).sort((a, b) => (a.verified === b.verified ? 0 : a.verified ? -1 : 1) || a.name.localeCompare(b.name, 'pl'));
     const score = (c: typeof all[number]) => (norm(c.name).startsWith(t) ? 0 : norm(c.name).includes(' ' + t) ? 1 : 2) * 2 + (c.verified ? 0 : 1);
-    return all.filter(c => norm(c.name).includes(t) || norm(c.nameEn).includes(t))
-      .sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name, 'pl')).slice(0, 60);
-  }, [q, all, recent, st]);
+    return all.filter(c => (norm(c.name).includes(t) || norm(c.nameEn).includes(t)) && inFilter(c))
+      .sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name, 'pl')).slice(0, 80);
+  }, [q, all, recent, st, group, eq]);
   const exact = list.some(c => norm(c.name) === norm(q.trim()));
+  const total = CATALOG.filter(c => extra || c.vol).length + st.custom.length;
   return (
-    <div className="p-sheet" role="dialog" aria-label="Dodaj ćwiczenie">
+    <div className="p-sheet" role="dialog" aria-label={title}>
       <div className="p-sheet-head">
-        <input autoFocus className="p-search" placeholder="Szukaj (np. wiosłowanie, bench)" value={q} onChange={e => setQ(e.target.value)} aria-label="Szukaj ćwiczenia" />
+        <input autoFocus className="p-search" placeholder={`Szukaj wśród ${total} ćwiczeń`} value={q} onChange={e => setQ(e.target.value)} aria-label="Szukaj ćwiczenia" />
         <button className="p-btn sm" onClick={onClose}>Anuluj</button>
       </div>
       <div className="p-sheet-body">
-        {!q && <p className="p-note">{recent.length ? 'Ostatnio wykonywane:' : 'Wpisz nazwę ćwiczenia po polsku lub angielsku.'}</p>}
+        <div className="p-filter wrap">
+          {MUSCLE_GROUPS.map(g => <button key={g.id} className={`p-chip ${group === g.id ? 'on' : ''}`} onClick={() => setGroup(v => (v === g.id ? null : g.id))}>{g.name}</button>)}
+        </div>
+        <div className="p-filter">
+          {EQUIPMENT.map(x => <button key={x} className={`p-chip ${eq === x ? 'on' : ''}`} onClick={() => setEq(v => (v === x ? null : x))}>{x}</button>)}
+          <button className={`p-chip ${extra ? 'on' : ''}`} onClick={() => setExtra(v => !v)}>+ rozciąganie i cardio</button>
+        </div>
+        {!q.trim() && !browsing && <p className="p-note">{recent.length ? 'Ostatnio wykonywane – albo wybierz partię / sprzęt powyżej, albo wpisz nazwę (po polsku lub angielsku):' : 'Wybierz partię mięśni albo sprzęt powyżej albo wpisz nazwę ćwiczenia (po polsku lub angielsku).'}</p>}
+        {browsing && <p className="p-note">{list.length} ćwiczeń{group ? ` · ${MUSCLE_GROUPS.find(g => g.id === group)?.name}` : ''}{eq ? ` · ${eq}` : ''} (najpierw sprawdzone)</p>}
         {list.map(c => (
           <button key={c.id} className="p-pick" onClick={() => onPick(c.id)}>
             <ExerciseThumb id={c.id} has={c.img} size={48} />
-            <b>{c.name}</b><span>{c.eq}{c.top ? ` · ${muscleName(c.top)}` : ''}{c.custom ? ' · własne' : ''}</span>
+            <b>{c.name}</b><span>{c.eq}{c.top ? ` · ${muscleName(c.top)}` : ''}{c.custom ? ' · własne' : ''}{!c.vol ? ' · rozciąganie/cardio' : ''}</span>
             {st.last[c.id] && <span className="p-pick-last">Ostatnio: {st.last[c.id][1] != null ? `${fmtKg(st.last[c.id][1])} kg × ` : ''}{fmtRepsAlt(st.last[c.id][2], st.last[c.id][3], st.alt[c.id])} ({fmtDay(st.last[c.id][0])})</span>}
           </button>
         ))}
