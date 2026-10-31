@@ -42,6 +42,8 @@ export interface WorkoutExercise {
   altLabels: AltLabels | null;
   /** Cel trenera podany na telefonie przed ćwiczeniem: [kg, powt., powt. łatwiejsze, RPE] */
   target: [number | null, number, number | null, number] | null;
+  /** Cele trenera dla kolejnych serii roboczych (seria 1, 2, 3…) */
+  setTargets: [number | null, number, number | null, number][] | null;
 }
 
 export interface Workout {
@@ -127,7 +129,7 @@ export function normalizeDb(raw: unknown): Db {
   db.workouts = db.workouts.map((w: any) => ({
     startTime: null, durationMin: null, name: '', notes: '', source: 'ręcznie', createdAt: new Date().toISOString(), planId: null, ...w,
     exercises: (w.exercises ?? []).map((e: any) => ({
-      notes: '', supersetId: null, altLabels: null, target: null, ...e,
+      notes: '', supersetId: null, altLabels: null, target: null, setTargets: null, ...e,
       sets: (e.sets ?? []).map((s: any) => ({ reps: null, weightKg: null, restSec: null, durationSec: null, rpe: null, warmup: false, repsAlt: null, ...s })),
     })),
   }));

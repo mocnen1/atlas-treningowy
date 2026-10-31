@@ -157,3 +157,65 @@ test('telefon: cel trenera zapisany przy ćwiczeniu i wysyłany do komputera', a
   const t = toTransfer(wk);
   assert.deepEqual(t.exercises[0].t, [62.5, 8, null, 8]); assert.equal(t.planId, 'P1');
 });
+
+test('seria po serii: każda seria porównana z tą samą serią poprzednio', () => {
+  const sess = (d: string, sets: HSet[]) => S(d, 'a', sets);
+  const h = [
+    sess('2026-10-01', [w(60, 11, 8), w(60, 9, 9), w(60, 7, 10)]),
+    sess('2026-10-08', [w(60, 12, 8), w(60, 10, 9), w(60, 8, 10)]),
+    sess('2026-10-15', [w(60, 12, 8), w(60, 10, 9), w(60, 8, 10)]),
+  ];
+  const g = suggest(h, 'a', [8, 12], false, 2.5).suggestion!;
+  assert.deepEqual(g.sets.map(x => [x.kg, x.reps]), [[62.5, 8], [60, 10], [60, 8]],
+    'seria 1 na górze zakresu przy zapasie 2 → +2,5 kg; seria 2 przy zapasie 1 → powtórz; seria 3 do upadku, ale w normie dla 3. serii → powtórz');
+  assert.equal(g.kg, 62.5); assert.equal(g.reps, 8);
+  const g4 = suggest(h, 'a', [8, 12], false, 2.5, { nSets: 4 }).suggestion!;
+  assert.equal(g4.sets.length, 4);
+  assert.ok(g4.sets[3].was.estimated); assert.deepEqual([g4.sets[3].kg, g4.sets[3].reps], [60, 6], 'czwarta seria: szacunek z typowego spadku (2 powt.)');
+  const g2 = suggest(h, 'a', [8, 12], false, 2.5, { nSets: 2 }).suggestion!;
+  assert.equal(g2.sets.length, 2);
+});
+
+test('seria po serii: seria bez oceny dostaje trudność z sąsiedniej (+0,5 na serię)', () => {
+  const h = [S('2026-10-01', 'a', [w(50, 10, 8), w(50, 9, null)]), S('2026-10-08', 'a', [w(50, 10, 8), w(50, 9, null)]), S('2026-10-15', 'a', [w(50, 10, 8), w(50, 9, null)])];
+  const g = suggest(h, 'a', [8, 12], false, 2.5).suggestion!;
+  assert.equal(g.sets[1].was.rpe, 8.5); assert.equal(g.sets[1].reps, 10, 'zapas 1,5 → +1 powtórzenie');
+});
+
+test('seria po serii: wynik względem celów liczony dla każdej serii', async () => {
+  const { outcome, setOutcome } = await import('../src/shared/trainer');
+  const t1: [number, number, null, number] = [62.5, 8, null, 8], t2: [number, number, null, number] = [60, 10, null, 9];
+  const ok = { ...S('2026-10-22', 'a', [w(62.5, 8, 8), w(60, 10, 9)]), ts: [t1, t2] };
+  assert.equal(outcome(ok), 'hit');
+  // seria 2 słabsza niż kiedykolwiek, ale stara metoda (najlepsza seria vs jeden cel) uznałaby to za trafienie
+  const weak2 = { ...S('2026-10-22', 'a', [w(62.5, 8, 8), w(60, 6, 10)]), ts: [t1, t2] };
+  assert.equal(setOutcome(weak2.s[1], t2), 'miss');
+  assert.equal(outcome(weak2), 'miss');
+  assert.equal(outcome({ ...weak2, ts: undefined, t: t1 }), 'hit');
+});
+
+test('zwarta historia przenosi cele dla serii', () => {
+  const h = { bench: [{ ...S('2026-10-15', 'p1', [[60, 10, 8, 0], [60, 9, 9, 0]], 'Klata'), t: [62.5, 8, null, 8] as [number, number, null, number], ts: [[62.5, 8, null, 8], [60, 10, null, 9]] as [number, number, null, number][] }],
+    row: [{ ...S('2026-10-15', 'p1', [[60, 10, 8, 0]], 'Klata'), ts: [[62.5, 8, null, 8]] as [number, number, null, number][] }] };
+  assert.deepEqual(unpackHistory(packHistory(h)), h);
+});
+
+test('telefon: serie startują seria po serii, cele dla każdej serii idą do komputera', async () => {
+  const { emptyState, startWorkout, toTransfer, fillSets, setsAtTarget, lastSetsInContext } = await import('../src/phone/state');
+  const three = (d: string): HSession => S(d, 'P1', [[20, 10, null, 1], w(60, 12, 8), w(60, 10, 9), w(60, 8, 10)]);
+  const s = { ...emptyState(), hist: { press: [three('2026-10-01'), three('2026-10-08'), three('2026-10-15')] } };
+  const wk = startWorkout(s, { id: 'P1', name: 'Klata', exercises: [{ exerciseId: 'press', sets: 3, repsMin: 8, repsMax: 12, restSec: 90, notes: '' }] });
+  const e = wk.exercises[0];
+  assert.deepEqual(e.tgts, [[62.5, 8, null, 8], [60, 10, null, 9], [60, 8, null, 9]]);
+  assert.deepEqual(e.sets.map(x => [x.kg, x.reps]), [[62.5, 8], [60, 10], [60, 8]], 'każda seria swój cel');
+  assert.ok(setsAtTarget(e));
+  const last = lastSetsInContext(s, 'press', 'P1')!.sets;
+  const back = { ...e, sets: fillSets(e, last) };
+  assert.deepEqual(back.sets.map(x => [x.kg, x.reps]), [[60, 12], [60, 10], [60, 8]], 'powrót: seria 1 = seria 1 poprzednio itd. (rozgrzewka pominięta)');
+  // trening bez pewnych celów: serie startują od tych samych serii poprzednio
+  const s1 = { ...s, hist: { press: [three('2026-10-15')] } };
+  const w1 = startWorkout(s1, { id: 'P1', name: 'Klata', exercises: [{ exerciseId: 'press', sets: 4, repsMin: 8, repsMax: 12, restSec: 90, notes: '' }] });
+  assert.deepEqual(w1.exercises[0].sets.map(x => [x.kg, x.reps]), [[60, 12], [60, 10], [60, 8], [60, 8]]);
+  e.sets[0].doneAt = Date.now(); wk.endedAt = Date.now();
+  assert.deepEqual(toTransfer(wk).exercises[0].ts, e.tgts);
+});

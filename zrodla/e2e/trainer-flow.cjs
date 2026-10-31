@@ -47,7 +47,7 @@ app.whenReady().then(async () => {
     await click('Gorszy dzień'); await sleep(300);
     s = await state(); report.setsAfterBack = s.active.exercises[0].sets.map(x => [x.kg, x.reps]);
     await shot('t1b-ostatni-wynik');
-    await click('Ustaw serie na cel'); await sleep(300);
+    await click('Ustaw serie na cele'); await sleep(300);
     s = await state(); report.setsAfterApply = s.active.exercises[0].sets.map(x => [x.kg, x.reps]);
     await click('Historia'); await sleep(400); await shot('t2-historia');
     await click('Zamknij'); await sleep(300);

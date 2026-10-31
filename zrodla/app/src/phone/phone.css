@@ -247,3 +247,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .p-hist-t { margin-left: auto; display: inline-flex; gap: 5px; align-items: center; font: 12px var(--f-mono); color: var(--muted); }
 .p-coach-in { color: var(--ok); text-transform: none; letter-spacing: 0; font-size: 12px; }
 .p-coach-btn { justify-self: start; margin-top: 4px; white-space: normal; text-align: left; height: auto; min-height: 36px; padding: 6px 12px; }
+.p-coach-sets { display: grid; gap: 3px; margin: 2px 0 2px; }
+.p-coach-sets > div { display: grid; grid-template-columns: 18px auto minmax(0, 1fr); gap: 6px; align-items: baseline; }
+.p-coach-sets .n { font: 600 12px var(--f-mono); color: var(--muted); }
+.p-coach-sets b { font-size: 16px; white-space: nowrap; }
+.p-coach-sets .p-sub { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-hist-goal { font: 12px var(--f-mono); color: var(--muted); }

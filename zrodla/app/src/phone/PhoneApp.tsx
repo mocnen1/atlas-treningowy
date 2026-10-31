@@ -6,7 +6,7 @@ import { outcome, type HSet, type TrainerState } from '../shared/trainer';
 import { ExerciseAnim, ExerciseThumb, imgUrl } from '../shared/ExerciseImage';
 import {
   CATALOG, afterSet, applyPcBundle, estSetSec, supersetOf, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
-  exerciseHistory, fillSets, lastInContext, setsAtTarget, withTarget, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
+  exerciseHistory, fillSets, lastInContext, lastSetsInContext, setsAtTarget, withTarget, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
 } from './state';
 
 type Screen = { s: 'home' } | { s: 'workout' } | { s: 'send'; ids: string[] } | { s: 'receive' } | { s: 'settings' } | { s: 'view'; id: string };
@@ -359,7 +359,7 @@ function WorkoutScreen({ st, update, go }: P) {
                   altOn={!!alt} onAlt={() => setAltEdit(e.id)}
                   onRemove={() => setW(x => ({ ...x, exercises: x.exercises.filter(y => y.id !== e.id) }))} />
               </div>
-              <TrainerBox tr={tr} alt={alt} atTarget={setsAtTarget(e)} last={lc ? [lc.kg, lc.reps, lc.repsAlt] : last ? [last[1], last[2], last[3] ?? null] : null}
+              <TrainerBox tr={tr} alt={alt} atTarget={setsAtTarget(e)} last={lastSetsInContext(st, e.exerciseId, workoutContext(st, w))?.sets ?? (last ? [[last[1], last[2], last[3] ?? null]] : null)}
                 onSet={v => setEx(e.id, y => ({ ...y, sets: fillSets(y, v) }))} />
               {altEdit === e.id && <AltEditor initial={alt ?? st.alt[e.exerciseId] ?? ['pełne', 'łatwiejsze']} on={!!alt}
                 onSave={labels => {
@@ -475,8 +475,8 @@ const OUT_LABEL = { beat: 'przebity', hit: 'trafiony', miss: 'nietrafiony' } as 
 
 /** Podpowiedź trenera albo postęp zbierania danych (osobno dla tego planu i dla innych). */
 type Vals = [kg: number | null, reps: number | null, repsAlt: number | null];
-/** Podpowiedź trenera: przy pewnym celu serie startują z celem, przycisk przełącza między celem a ostatnim wynikiem. */
-function TrainerBox({ tr, alt, atTarget, last, onSet }: { tr: TrainerState; alt: [string, string] | null; atTarget: boolean; last: Vals | null; onSet: (v: Vals) => void }) {
+/** Podpowiedź trenera dla każdej serii. Przy pewnych celach serie startują z celem; przycisk przełącza między celami a ostatnimi wynikami. */
+function TrainerBox({ tr, alt, atTarget, last, onSet }: { tr: TrainerState; alt: [string, string] | null; atTarget: boolean; last: Vals[] | null; onSet: (v: Vals[]) => void }) {
   const [more, setMore] = useState(false);
   const g = tr.suggestion;
   if (!g) {
@@ -488,24 +488,31 @@ function TrainerBox({ tr, alt, atTarget, last, onSet }: { tr: TrainerState; alt:
       </span>
     );
   }
-  const short = (v: Vals) => `${v[0] != null ? `${fmtKg(v[0])} × ` : ''}${alt && v[2] != null ? `${v[1] ?? 0} + ${v[2]}` : v[1] ?? '–'}`;
-  const target = `${g.kg != null ? `${fmtKg(g.kg)} kg × ` : ''}${alt && g.repsAlt != null ? `${g.reps} ${alt[0]} + ${g.repsAlt} ${alt[1]}` : g.reps}`;
-  const tv: Vals = [g.kg, g.reps, g.repsAlt];
+  const one = (v: Vals) => `${v[0] != null ? `${fmtKg(v[0])} × ` : ''}${alt && v[2] != null ? `${v[1] ?? 0} + ${v[2]}` : v[1] ?? '–'}`;
+  const many = (l: Vals[]) => l.map(one).join(' / ');
+  const tv: Vals[] = g.sets.map(x => [x.kg, x.reps, x.repsAlt]);
   return (
     <div className={`p-coach ${g.level}`}>
       <div className="p-coach-h"><span>Trener · {LEVEL_LABEL[g.level]}</span>{atTarget && <span className="p-coach-in">✓ w seriach</span>}</div>
-      <b>Cel: {target}</b>
-      <span className="p-sub">ostatnia seria na ok. {effortPct(g.rpe)}% ({g.rpe >= 9 ? '1 w zapasie' : '2 w zapasie'})</span>
+      <div className="p-coach-sets">
+        {g.sets.map((x, i) => (
+          <div key={i}>
+            <span className="n">{i + 1}.</span>
+            <b>{x.kg != null ? `${fmtKg(x.kg)} kg × ` : ''}{alt && x.repsAlt != null ? `${x.reps} ${alt[0]} + ${x.repsAlt} ${alt[1]}` : x.reps}</b>
+            <span className="p-sub">~{effortPct(x.rpe)}% · ostatnio {x.was.estimated ? 'brak (szac.)' : `${x.was.kg != null ? `${fmtKg(x.was.kg)} × ` : ''}${alt ? `${x.was.reps} + ${x.was.repsAlt}` : x.was.reps}${x.was.rpe != null ? ` · ${effortPct(x.was.rpe)}%` : ''}`}</span>
+          </div>
+        ))}
+      </div>
       {g.outcomes.length > 0 && (
         <span className="p-sub p-outs">Ostatnie cele: {g.outcomes.map((o, i) => <i key={i} className={`o-${o}`} title={OUT_LABEL[o]}>{OUT_LABEL[o]}</i>)}
           {g.pace !== 'normal' && <b className={`pace-${g.pace}`}>{g.pace === 'fast' ? 'tempo: szybciej' : 'tempo: wolniej'}</b>}</span>
       )}
       {g.warn && <span className="p-sub warn">{g.warn}</span>}
       {atTarget
-        ? (last && <button className="p-btn sm p-coach-btn" onClick={() => onSet(last)}>Gorszy dzień? Wróć do ostatniego wyniku ({short(last)})</button>)
-        : <button className="p-btn sm p-coach-btn" onClick={() => onSet(tv)}>Ustaw serie na cel ({short(tv)})</button>}
+        ? (last && <button className="p-btn sm p-coach-btn" onClick={() => onSet(last)}>Gorszy dzień? Wróć do ostatnich wyników ({many(last)})</button>)
+        : <button className="p-btn sm p-coach-btn" onClick={() => onSet(tv)}>Ustaw serie na cele ({many(tv)})</button>}
       <button className="p-link sm" onClick={() => setMore(m => !m)}>{more ? 'Ukryj' : 'Dlaczego?'}</button>
-      {more && <span className="p-sub">{g.reason}</span>}
+      {more && <span className="p-sub">{g.sets.length > 1 ? g.sets.map((x, i) => `Seria ${i + 1}: ${x.why}`).join(' ') + ' ' : ''}{g.sets.length > 1 ? g.reason.slice(g.sets[0].why.length).trim() : g.reason}</span>}
     </div>
   );
 }
@@ -521,7 +528,8 @@ function HistorySheet({ st, exerciseId, ctx, alt, onClose }: { st: PhoneState; e
       {list.map((s, i) => (
         <div key={i} className="p-hist">
           <div className="p-hist-h"><b>{fmtDay(s.d)}</b><span>{s.n}</span>
-            {s.t && <span className="p-hist-t">cel {s.t[0] != null ? `${fmtKg(s.t[0])} × ` : ''}{s.t[2] != null ? `${s.t[1]} + ${s.t[2]}` : s.t[1]}{(() => { const o = outcome(s); return o ? <i className={`o-${o}`}>{OUT_LABEL[o]}</i> : null; })()}</span>}</div>
+            {(s.ts?.length || s.t) && <span className="p-hist-t">{(() => { const o = outcome(s); return o ? <i className={`o-${o}`}>{OUT_LABEL[o]}</i> : null; })()}</span>}</div>
+          {(s.ts?.length || s.t) && <div className="p-hist-goal">cel: {(s.ts?.length ? s.ts : [s.t!]).map(t => `${t[0] != null ? `${fmtKg(t[0])} × ` : ''}${t[2] != null ? `${t[1]} + ${t[2]}` : t[1]}`).join(' / ')}</div>}
           <div className="p-done-list">{s.s.map((x, k) => <span key={k} className={x[3] ? 'warm' : ''}>{x[3] ? 'R · ' : ''}{fmtSet(x)}</span>)}</div>
         </div>
       ))}

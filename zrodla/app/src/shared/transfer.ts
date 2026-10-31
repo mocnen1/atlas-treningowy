@@ -35,6 +35,8 @@ export interface TransferWorkout {
     ss?: string | null; alt?: AltLabels | null;
     /** Cel trenera podany przed tym ćwiczeniem [kg, powt., powt. łatwiejsze, RPE] */
     t?: HTarget | null;
+    /** Cele trenera dla kolejnych serii roboczych */
+    ts?: HTarget[] | null;
   }[];
 }
 export interface PhoneBundle {
@@ -66,7 +68,7 @@ export interface PcBundle {
  * Historia w formie zwartej: konteksty [klucz, nazwa], a dla ćwiczenia lista [dzień od 2020-01-01, nr kontekstu, serie].
  * Seria: [kg, powtórzenia, RPE, rozgrzewka 0/1, (powtórzenia łatwiejsze)].
  */
-export interface PackedHistory { c: [string, string][]; e: Record<string, ([number, number, HSet[]] | [number, number, HSet[], HTarget])[]> }
+export interface PackedHistory { c: [string, string][]; e: Record<string, ([number, number, HSet[]] | [number, number, HSet[], HTarget | null] | [number, number, HSet[], HTarget | null, HTarget[]])[]> }
 const DAY0 = Date.UTC(2020, 0, 1);
 const toDay = (iso: string) => Math.round((Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - DAY0) / 86_400_000);
 const fromDay = (n: number) => new Date(DAY0 + n * 86_400_000).toISOString().slice(0, 10);
@@ -78,7 +80,8 @@ export function packHistory(byEx: Record<string, HSession[]>): PackedHistory {
     e[ex] = ss.map(s => {
       if (!idx.has(s.c)) { idx.set(s.c, c.length); c.push([s.c, s.n]); }
       const sets = s.s.map(x => (x[4] == null ? x.slice(0, 4) : x) as HSet);
-      return s.t ? [toDay(s.d), idx.get(s.c)!, sets, s.t] : [toDay(s.d), idx.get(s.c)!, sets];
+      const day = toDay(s.d), ci = idx.get(s.c)!;
+      return s.ts?.length ? [day, ci, sets, s.t ?? null, s.ts] : s.t ? [day, ci, sets, s.t] : [day, ci, sets];
     });
   }
   return { c, e };
@@ -86,7 +89,7 @@ export function packHistory(byEx: Record<string, HSession[]>): PackedHistory {
 export function unpackHistory(h: PackedHistory | undefined): Record<string, HSession[]> {
   const out: Record<string, HSession[]> = {};
   if (!h) return out;
-  for (const [ex, ss] of Object.entries(h.e)) out[ex] = ss.map(([d, ci, s, t]) => ({ d: fromDay(d), c: h.c[ci]?.[0] ?? 'x', n: h.c[ci]?.[1] ?? '', s, ...(t ? { t } : {}) }));
+  for (const [ex, ss] of Object.entries(h.e)) out[ex] = ss.map(([d, ci, s, t, ts]) => ({ d: fromDay(d), c: h.c[ci]?.[0] ?? 'x', n: h.c[ci]?.[1] ?? '', s, ...(t ? { t } : {}), ...(ts?.length ? { ts } : {}) }));
   return out;
 }
 

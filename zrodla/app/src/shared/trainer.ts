@@ -18,6 +18,8 @@
 //   upadek (RPE 10)       – poniżej dołu zakresu → −1 krok; inaczej powtórz wynik.
 //
 // Dopasowanie do osoby (włącza się samo, gdy jest dość danych):
+//   0. Seria po serii: seria 1 porównywana z serią 1 poprzednio, seria 2 z serią 2 itd. (dalsze serie są słabsze
+//      ze zmęczenia, więc mają własne cele). Gdy dziś jest więcej serii niż wtedy – szacunek z typowego spadku między seriami.
 //   1. Tempo: wynik ostatnich 3 treningów z celem (przebity / trafiony / nietrafiony). 3 × przebity → szybciej
 //      (podwójny krok ciężaru albo +1 powtórzenie więcej); 2 z 3 nietrafione → wolniej (bez dokładania, aż cel wejdzie).
 //   2. Skala trudności: porównanie ocen „X w zapasie” z seriami do upadku tym samym ćwiczeniem w ciągu 14 dni.
@@ -31,7 +33,13 @@ export type HSet = [kg: number | null, reps: number | null, rpe: number | null, 
 /** Cel trenera podany przed treningiem: [kg, powtórzenia, powtórzenia łatwiejsze, docelowe RPE] */
 export type HTarget = [kg: number | null, reps: number, repsAlt: number | null, rpe: number];
 /** Jedno wykonanie ćwiczenia: data YYYY-MM-DD, klucz kontekstu (plan), nazwa kontekstu do wyświetlenia, serie, cel trenera */
-export interface HSession { d: string; c: string; n: string; s: HSet[]; t?: HTarget | null }
+export interface HSession {
+  d: string; c: string; n: string; s: HSet[];
+  /** Cel trenera dla najlepszej serii (starsze wersje) */
+  t?: HTarget | null;
+  /** Cele trenera dla kolejnych serii roboczych (seria 1, 2, 3…) */
+  ts?: HTarget[] | null;
+}
 
 /** Klucz kontekstu treningu: identyfikator planu, a dla treningu bez planu – plan o tej samej nazwie albo sama nazwa. */
 export function contextKey(planId: string | null | undefined, name: string, plans: { id: string; name: string }[] = []): string {
@@ -68,13 +76,25 @@ export function weightStep(sessions: HSession[], fallback: number): number {
 }
 
 export type Outcome = 'beat' | 'hit' | 'miss';
-/** Jak poszło względem celu trenera: porównanie szacowanego 1RM najlepszej serii z celem (±2–3%). */
+const verdict = (r: number): Outcome => (r >= 1.03 ? 'beat' : r <= 0.98 ? 'miss' : 'hit');
+/** Wynik pojedynczej serii względem jej celu (seria bez oceny trudności: zakładamy zapas 1). */
+export function setOutcome(x: HSet | undefined, t: HTarget | undefined, off = 0): Outcome | null {
+  if (!x || !t) return null;
+  return verdict(capacity(x, off) / targetCap(t));
+}
+/**
+ * Jak poszło względem celów trenera. Przy celach dla serii: średnia z porównań seria 1 ↔ cel 1, seria 2 ↔ cel 2…
+ * (szacowany 1RM z uwzględnieniem zapasu, próg ±2–3%). Starszy zapis: najlepsza seria ↔ jeden cel.
+ */
 export function outcome(s: HSession, off = 0): Outcome | null {
+  const ws = work(s);
+  if (!ws.some(x => x[2] != null)) return null;
+  if (s.ts?.length) {
+    const r = s.ts.map((t, i) => (ws[i] ? capacity(ws[i], off) / targetCap(t) : null)).filter((v): v is number => v != null);
+    return r.length ? verdict(r.reduce((a, b) => a + b, 0) / r.length) : null;
+  }
   if (!s.t) return null;
-  const ws = work(s).filter(x => x[2] != null);
-  if (!ws.length) return null;
-  const r = sessionCap(s, off) / targetCap(s.t);
-  return r >= 1.03 ? 'beat' : r <= 0.98 ? 'miss' : 'hit';
+  return verdict(sessionCap(s, off) / targetCap(s.t));
 }
 
 /**
@@ -126,13 +146,27 @@ export interface Suggestion {
   /** Ostatnie wyniki względem celów (od najnowszego) */
   outcomes: Outcome[];
   rirOffset: number;
+  /** Cele dla kolejnych serii roboczych (seria 1 = kg/reps powyżej) */
+  sets: SetTarget[];
+}
+export interface SetTarget {
+  kg: number | null; reps: number; repsAlt: number | null; rpe: number;
+  /** Ta sama seria poprzednio (albo szacunek, gdy wtedy było mniej serii) */
+  was: { kg: number | null; reps: number | null; repsAlt: number | null; rpe: number | null; estimated: boolean };
+  why: string;
 }
 export interface TrainerState { suggestion: Suggestion | null; ctxRated: number; otherRated: number }
-export interface TrainerOpts { rirOffset?: number }
+export interface TrainerOpts {
+  rirOffset?: number;
+  /** Ile serii roboczych ma ćwiczenie dziś (z planu albo z treningu); domyślnie tyle, ile ostatnio */
+  nSets?: number;
+}
 
 const fmt = (n: number) => n.toLocaleString('pl-PL', { maximumFractionDigits: 2 });
 /** Cel trenera w postaci do zapisu przy ćwiczeniu */
 export const toTarget = (g: Suggestion): HTarget => [g.kg, g.reps, g.repsAlt, g.rpe];
+/** Cele dla serii w postaci do zapisu */
+export const toTargets = (g: Suggestion): HTarget[] => g.sets.map(x => [x.kg, x.reps, x.repsAlt, x.rpe]);
 
 /**
  * Podpowiedź na kolejny trening.
@@ -171,85 +205,114 @@ export function suggest(sessions: HSession[], ctx: string, range: [number | null
   }
 
   const ws = work(base);
-  const rated = ws.filter(x => x[2] != null);
-  // najlepsza seria robocza (z oceną): największy szacowany 1RM; jej trudność – a gdy brak, najwyższa w treningu
-  const top = rated.reduce((a, x) => (capacity(x, off) > capacity(a, off) ? x : a), rated[0]);
-  const rpeRaw = top[2] ?? Math.max(...rated.map(x => x[2]!));
-  const rpe = clamp(rpeRaw - off, 4, 10); // trudność po korekcie skali
-  const k = top[0] && top[0] > 0 ? top[0] : null, r = top[1] ?? 0, ra = alt ? top[4] ?? 0 : null;
   const step = weightStep(all, defaultStep);
-  let lo = range?.[0] ?? null, hi = range?.[1] ?? null;
-  if (lo == null && hi == null) { lo = r; hi = r + 2; } else { lo ??= hi!; hi ??= lo; }
-  if (hi! < lo!) [lo, hi] = [hi, lo];
+  // typowy spadek powtórzeń między kolejnymi seriami tym samym ciężarem (ostatnie treningi źródła), domyślnie 1
+  const drops: number[] = [];
+  for (const s of series.slice(0, 6)) {
+    const w = work(s);
+    for (let i = 1; i < w.length; i++) if (w[i][0] === w[i - 1][0] && w[i - 1][1] != null && w[i][1] != null) drops.push(w[i - 1][1]! - w[i][1]!);
+  }
+  const drop = drops.length ? clamp(Math.round(median(drops)), 0, 3) : 1;
+  const n = Math.max(1, opts.nSets ?? ws.length);
+
+  /** Seria nr i poprzednio: ta sama seria; bez oceny – trudność z najbliższej ocenionej (+0,5 na każdą serię dalej);
+   *  gdy wtedy było mniej serii – ostatnia seria z typowym spadkiem powtórzeń. */
+  const prevSet = (i: number): { x: HSet; est: boolean } => {
+    if (ws[i]) {
+      const x = ws[i];
+      if (x[2] != null) return { x, est: false };
+      let j = -1, dist = 99;
+      ws.forEach((y, k) => { if (y[2] != null && Math.abs(k - i) < dist) { dist = Math.abs(k - i); j = k; } });
+      return { x: [x[0], x[1], clamp(ws[j][2]! + 0.5 * (i - j), 5, 10), 0, x[4]], est: false };
+    }
+    const li = ws.length - 1, p = prevSet(li).x, extra = i - li;
+    return { x: [p[0], Math.max(1, (p[1] ?? 0) - drop * extra), clamp((p[2] ?? 9) + 0.5 * extra, 5, 10), 0, p[4]], est: true };
+  };
 
   // tempo: wyniki ostatnich treningów z celem (to ćwiczenie, dowolny plan)
   const outcomes = all.map(s => outcome(s, off)).filter((o): o is Outcome => o != null).slice(0, 3);
   const pace: TrainerPace = outcomes.length === 3 && outcomes.every(o => o === 'beat') ? 'fast'
     : outcomes.length >= 2 && outcomes.filter(o => o === 'miss').length >= 2 ? 'slow' : 'normal';
 
-  let kg = k, reps = r, repsAlt = ra, why = '', aim = 8;
-  let change: 'kg+' | 'reps+' | 'same' | 'kg-' = 'same';
-  const rir = Math.max(0, 10 - rpeRaw);
-  const zap = rir >= 5 ? '5+' : fmt(rir);
-  const was = `${k != null ? fmt(k) + ' kg × ' : ''}${alt ? `${r} + ${ra}` : r} przy ${zap === '0' ? 'upadku' : `zapasie ${zap}`}`;
-  if (alt || k == null) {
-    // masa ciała / dwa warianty: progres w powtórzeniach (przy wariantach – w pełnych)
-    if (rpe <= 7) { reps = r + 2; change = 'reps+'; why = `Ostatnio ${was} – za lekko, +2 ${alt ? 'pełne' : 'powtórzenia'}.`; }
-    else if (rpe <= 8.5) { reps = r + 1; change = 'reps+'; why = `Ostatnio ${was} – +1 ${alt ? 'pełne' : 'powtórzenie'}.`; }
-    else if (rpe <= 9.5) { aim = 9; why = `Ostatnio ${was} – powtórz wynik, celuj w ten sam lub o 1 lepszy.`; }
-    else { aim = 9; why = `Ostatnio ${was} – powtórz wynik, bez dokładania.`; }
-  } else if (rpe <= 7) {
-    if (r < hi!) { reps = Math.min(hi!, r + 2); change = 'reps+'; why = `Ostatnio ${was} – za lekko, +2 powtórzenia.`; }
-    else { kg = k + step; reps = lo!; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu – +${fmt(step)} kg.`; }
-  } else if (rpe <= 8.5) {
-    if (r >= hi!) { kg = k + step; reps = lo!; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu ${lo}–${hi} – +${fmt(step)} kg i od dołu zakresu.`; }
-    else { reps = r + 1; change = 'reps+'; why = `Ostatnio ${was} – ten sam ciężar, +1 powtórzenie.`; }
-  } else if (rpe <= 9.5) {
-    aim = 9;
-    if (r >= hi!) { kg = k + step; reps = lo!; aim = 8; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu – +${fmt(step)} kg i od dołu zakresu.`; }
-    else { why = `Ostatnio ${was} – powtórz wynik; jeśli pójdzie lżej, dołóż powtórzenie.`; }
-  } else if (r < lo!) {
-    kg = Math.max(step, k - step); reps = lo!; change = 'kg-'; why = `Ostatnio ${was} poniżej zakresu ${lo}–${hi} – −${fmt(step)} kg.`;
-  } else { aim = 9; why = `Ostatnio ${was} – powtórz wynik zanim dołożysz.`; }
-
-  // tempo dopasowane do Ciebie
-  if (pace === 'fast' && !trend) {
-    if (change === 'kg+' && k != null && 2 * step <= Math.max(step, k * 0.1)) { kg = k + 2 * step; notes.push(`Trzy ostatnie cele przebite – szybciej: +${fmt(2 * step)} kg.`); }
-    else if (change === 'reps+') { reps += 1; if (!alt && k != null) reps = Math.min(reps, hi! + 1); notes.push('Trzy ostatnie cele przebite – szybciej: +1 powtórzenie więcej.'); }
-    else notes.push('Trzy ostatnie cele przebite.');
-  } else if (pace === 'slow') {
-    if (change === 'kg+' && rpe > 8) { kg = k; reps = r; change = 'same'; notes.push('Ostatnie cele nie weszły – wolniej: ten sam ciężar, aż wynik będzie pewny.'); }
-    else if (change === 'reps+') { reps = Math.max(r, reps - 1); notes.push('Ostatnie cele nie weszły – wolniej: mniejszy krok.'); }
-    else notes.push('Ostatnie cele nie weszły – trener nie dokłada.');
-  }
-
-  let warn: string | null = null;
-  if (trend) {
-    warn = 'Wyniki spadają od dwóch treningów – zostań przy ciężarze; sprawdź sen, jedzenie i regenerację.';
-    if (kg != null && k != null && kg > k) { kg = k; reps = r; why = `Ostatnio ${was}. Bez podnoszenia ciężaru z powodu spadku formy.`; }
-  }
-  if (alt) repsAlt = Math.max(0, r + (ra ?? 0) - reps); // łącznie tyle samo co ostatnio, ale więcej pełnych
-
   // przeliczenie z innego planu: stosunek mediany szacowanego 1RM w tym planie i w planie źródłowym
   let factor: number | null = null;
-  if (level === 'other' && kg != null) {
+  if (level === 'other') {
     const here = ctxS.slice(0, 3).map(s => sessionCap(s, off)), there = series.slice(0, 3).map(s => sessionCap(s, off));
     factor = here.length && there.length ? clamp(median(here) / median(there), 0.75, 1.15) : 1;
-    if (Math.abs(factor - 1) >= 0.02) kg = Math.max(step, Math.round((kg * factor) / step) * step);
     notes.push(here.length
       ? `Przeliczone z planu „${base.n}” (w tym planie zwykle ${fmt(Math.round(factor * 100))}% tamtych wyników).`
       : `Szacunek z planu „${base.n}” – w tym planie brak jeszcze ocenionych treningów, bez korekty.`);
   } else if (level === 'mixed') {
     notes.push(`Wstępnie: ${ctxRated} z ${TRAINER_MIN_SESSIONS} ocenionych treningów w tym planie.`);
   }
+
+  const paceNote = { fast: '', slow: '' };
+  const sets: SetTarget[] = [];
+  for (let i = 0; i < n; i++) {
+    const { x, est } = prevSet(i);
+    const rpeRaw = x[2]!;
+    const rpe = clamp(rpeRaw - off, 4, 10); // trudność po korekcie skali
+    const k = x[0] && x[0] > 0 ? x[0] : null, r = x[1] ?? 0, ra = alt ? x[4] ?? 0 : null;
+    let lo = range?.[0] ?? null, hi = range?.[1] ?? null;
+    if (lo == null && hi == null) { lo = r; hi = r + 2; } else { lo ??= hi!; hi ??= lo; }
+    if (hi! < lo!) [lo, hi] = [hi, lo];
+    // dolna granica dla zmniejszania ciężaru: dalsze serie mogą naturalnie wypaść niżej (zmęczenie)
+    const loDec = Math.max(1, lo! - drop * i);
+
+    let kg = k, reps = r, why = '', aim = 8;
+    let change: 'kg+' | 'reps+' | 'same' | 'kg-' = 'same';
+    const rir = Math.max(0, 10 - rpeRaw);
+    const zap = rir >= 5 ? '5+' : fmt(rir);
+    const was = `${est ? 'szacunek ' : ''}${k != null ? fmt(k) + ' kg × ' : ''}${alt ? `${r} + ${ra}` : r} przy ${zap === '0' ? 'upadku' : `zapasie ${zap}`}`;
+    if (alt || k == null) {
+      // masa ciała / dwa warianty: progres w powtórzeniach (przy wariantach – w pełnych)
+      if (rpe <= 7) { reps = r + 2; change = 'reps+'; why = `Ostatnio ${was} – za lekko, +2 ${alt ? 'pełne' : 'powtórzenia'}.`; }
+      else if (rpe <= 8.5) { reps = r + 1; change = 'reps+'; why = `Ostatnio ${was} – +1 ${alt ? 'pełne' : 'powtórzenie'}.`; }
+      else if (rpe <= 9.5) { aim = 9; why = `Ostatnio ${was} – powtórz wynik, celuj w ten sam lub o 1 lepszy.`; }
+      else { aim = 9; why = `Ostatnio ${was} – powtórz wynik, bez dokładania.`; }
+    } else if (rpe <= 7) {
+      if (r < hi!) { reps = Math.min(hi!, r + 2); change = 'reps+'; why = `Ostatnio ${was} – za lekko, +2 powtórzenia.`; }
+      else { kg = k + step; reps = lo!; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu – +${fmt(step)} kg.`; }
+    } else if (rpe <= 8.5) {
+      if (r >= hi!) { kg = k + step; reps = lo!; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu ${lo}–${hi} – +${fmt(step)} kg i od dołu zakresu.`; }
+      else { reps = r + 1; change = 'reps+'; why = `Ostatnio ${was} – ten sam ciężar, +1 powtórzenie.`; }
+    } else if (rpe <= 9.5) {
+      aim = 9;
+      if (r >= hi!) { kg = k + step; reps = lo!; aim = 8; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu – +${fmt(step)} kg i od dołu zakresu.`; }
+      else { why = `Ostatnio ${was} – powtórz wynik; jeśli pójdzie lżej, dołóż powtórzenie.`; }
+    } else if (r < loDec) {
+      kg = Math.max(step, k - step); reps = lo!; change = 'kg-'; why = `Ostatnio ${was}, wyraźnie poniżej zakresu – −${fmt(step)} kg.`;
+    } else { aim = 9; why = `Ostatnio ${was} – powtórz wynik zanim dołożysz.`; }
+
+    // tempo dopasowane do Ciebie
+    if (pace === 'fast' && !trend) {
+      if (change === 'kg+' && k != null && 2 * step <= Math.max(step, k * 0.1)) { kg = k + 2 * step; paceNote.fast = `Trzy ostatnie cele przebite – szybciej (podwójny krok ciężaru albo +1 powtórzenie więcej).`; }
+      else if (change === 'reps+') { reps += 1; if (!alt && k != null) reps = Math.min(reps, hi! + 1); paceNote.fast = `Trzy ostatnie cele przebite – szybciej (podwójny krok ciężaru albo +1 powtórzenie więcej).`; }
+      else paceNote.fast ||= 'Trzy ostatnie cele przebite.';
+    } else if (pace === 'slow') {
+      if (change === 'kg+' && rpe > 8) { kg = k; reps = r; change = 'same'; }
+      else if (change === 'reps+') reps = Math.max(r, reps - 1);
+      paceNote.slow = 'Ostatnie cele nie weszły – wolniej: mniejsze kroki, aż wynik będzie pewny.';
+    }
+    if (trend && kg != null && k != null && kg > k) { kg = k; reps = r; why = `Ostatnio ${was}. Bez podnoszenia ciężaru z powodu spadku formy.`; }
+    const repsAlt = alt ? Math.max(0, r + (ra ?? 0) - reps) : null; // łącznie tyle samo co ostatnio, ale więcej pełnych
+    if (kg != null && factor != null && Math.abs(factor - 1) >= 0.02) kg = Math.max(step, Math.round((kg * factor) / step) * step);
+    if (kg != null) kg = Math.round(kg * 100) / 100;
+    sets.push({ kg, reps, repsAlt, rpe: aim, why, was: { kg: k, reps: r, repsAlt: ra, rpe: rpeRaw, estimated: est } });
+  }
+
+  if (paceNote.fast) notes.push(paceNote.fast);
+  if (paceNote.slow) notes.push(paceNote.slow);
+  const warn = trend ? 'Wyniki spadają od dwóch treningów – zostań przy ciężarze; sprawdź sen, jedzenie i regenerację.' : null;
   if (off) notes.push(`Korekta Twojej skali: zwykle zostaje Ci ${off > 0 ? `o ${fmt(off)} powt. więcej` : `o ${fmt(-off)} powt. mniej`} w zapasie, niż oceniasz.`);
-  if (kg != null) kg = Math.round(kg * 100) / 100;
+  if (n > 1) notes.unshift('Każda seria porównana z tą samą serią poprzednio.');
+  const s1 = sets[0];
   return {
     ctxRated, otherRated,
     suggestion: {
-      level, kg, reps, repsAlt: alt ? repsAlt : null, rpe: aim, reason: [why, ...notes].join(' '), factor, ctxRated, otherRated, warn,
-      pace, outcomes, rirOffset: off,
-      from: { d: base.d, n: base.n, kg: k, reps: r, repsAlt: ra, rpe: rpeRaw },
+      level, kg: s1.kg, reps: s1.reps, repsAlt: s1.repsAlt, rpe: s1.rpe, reason: [s1.why, ...notes].join(' '), factor, ctxRated, otherRated, warn,
+      pace, outcomes, rirOffset: off, sets,
+      from: { d: base.d, n: base.n, kg: s1.was.kg, reps: s1.was.reps, repsAlt: s1.was.repsAlt, rpe: s1.was.rpe },
     },
   };
 }

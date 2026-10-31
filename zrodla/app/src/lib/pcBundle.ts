@@ -37,7 +37,7 @@ export function buildPcBundle(db: Db, profileId: string): PcBundle {
       if (!we.sets.some(isWorkingSet)) continue;
       const arr = (hist[we.exerciseId] ??= []);
       if (arr.length >= 10 || arr.filter(x => x.c === c).length >= 4) continue;
-      arr.push({ d: w.date, c, n, s: we.sets.map(s => [s.weightKg, s.reps, s.rpe, s.warmup ? 1 : 0, ...(s.repsAlt != null ? [s.repsAlt] : [])] as HSet), ...(we.target ? { t: we.target } : {}) });
+      arr.push({ d: w.date, c, n, s: we.sets.map(s => [s.weightKg, s.reps, s.rpe, s.warmup ? 1 : 0, ...(s.repsAlt != null ? [s.repsAlt] : [])] as HSet), ...(we.target ? { t: we.target } : {}), ...(we.setTargets?.length ? { ts: we.setTargets } : {}) });
     }
   }
   return {
@@ -63,7 +63,7 @@ export function sessionsByExercise(db: Db, profileId: string): Record<string, HS
     const n = planName.get(c) ?? (w.name || 'Bez nazwy');
     for (const we of w.exercises) {
       if (!we.sets.some(isWorkingSet)) continue;
-      (out[we.exerciseId] ??= []).push({ d: w.date, c, n, s: we.sets.map(s => [s.weightKg, s.reps, s.rpe, s.warmup ? 1 : 0, ...(s.repsAlt != null ? [s.repsAlt] : [])] as HSet), ...(we.target ? { t: we.target } : {}) });
+      (out[we.exerciseId] ??= []).push({ d: w.date, c, n, s: we.sets.map(s => [s.weightKg, s.reps, s.rpe, s.warmup ? 1 : 0, ...(s.repsAlt != null ? [s.repsAlt] : [])] as HSet), ...(we.target ? { t: we.target } : {}), ...(we.setTargets?.length ? { ts: we.setTargets } : {}) });
     }
   }
   return out;

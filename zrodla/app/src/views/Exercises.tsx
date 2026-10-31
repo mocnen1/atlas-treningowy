@@ -21,11 +21,11 @@ export function ExercisesView() {
   const history = useMemo(() => {
     if (!sel) return [];
     return db.workouts.filter(w => w.profileId === profile!.id)
-      .flatMap(w => w.exercises.filter(e => e.exerciseId === sel).map(e => ({ w, sets: e.sets.filter(isWorkingSet), labels: e.altLabels, target: e.target })))
+      .flatMap(w => w.exercises.filter(e => e.exerciseId === sel).map(e => ({ w, sets: e.sets.filter(isWorkingSet), labels: e.altLabels, target: e.target, setTargets: e.setTargets })))
       .filter(h => h.sets.length)
       .map(h => {
         const best = h.sets.reduce((a, s) => (setScore(s.weightKg, s.reps, s.repsAlt) > setScore(a.weightKg, a.reps, a.repsAlt) ? s : a), h.sets[0]);
-        return { date: h.w.date, labels: h.labels, target: h.target, plan: h.w.name, out: outcome({ d: h.w.date, c: '', n: '', s: h.sets.map(s => [s.weightKg, s.reps, s.rpe, 0, s.repsAlt] as HSet), t: h.target }), sets: h.sets, effort: sessionEffort(h.sets), best, est: e1rm(best.weightKg ?? 0, best.reps ?? 0), vol: h.sets.reduce((a, s) => a + allReps(s) * (s.weightKg ?? 0), 0) };
+        return { date: h.w.date, labels: h.labels, target: h.target, goals: h.setTargets?.length ? h.setTargets : h.target ? [h.target] : null, plan: h.w.name, out: outcome({ d: h.w.date, c: '', n: '', s: h.sets.map(s => [s.weightKg, s.reps, s.rpe, 0, s.repsAlt] as HSet), t: h.target, ts: h.setTargets }), sets: h.sets, effort: sessionEffort(h.sets), best, est: e1rm(best.weightKg ?? 0, best.reps ?? 0), vol: h.sets.reduce((a, s) => a + allReps(s) * (s.weightKg ?? 0), 0) };
       })
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [db.workouts, sel, profile]);
@@ -64,13 +64,13 @@ export function ExercisesView() {
               <TrainerByPlan exerciseId={sel!} />
               {history.length === 0 ? <p className="note">Jeszcze nie wykonywałeś tego ćwiczenia w profilu {profile!.name}.</p> : (
                 <table className="mtable">
-                  <thead><tr><th>Data</th><th>Trening</th><th>Najlepsza seria</th><th>Cel trenera</th><th className="r">Szac. 1RM</th><th className="r">Serie</th><th className="r">Trudność</th></tr></thead>
+                  <thead><tr><th>Data</th><th>Trening</th><th>Serie robocze</th><th>Cel trenera</th><th className="r">Szac. 1RM</th><th className="r">Serie</th><th className="r">Trudność</th></tr></thead>
                   <tbody>{history.slice(0, 30).map((h, i) => (
                     <tr key={i}>
                       <td>{fmtDate(h.date)}</td>
                       <td className="muted">{h.plan || '–'}</td>
-                      <td className="num">{h.best.weightKg != null ? `${fmtNum(h.best.weightKg)} kg × ` : ''}{h.best.reps == null && h.best.repsAlt == null ? (h.best.durationSec ? `${h.best.durationSec} s` : '–') : fmtRepsAlt(h.best.reps, h.best.repsAlt, h.labels)}</td>
-                      <td className="num">{h.target ? <>{h.target[0] != null ? `${fmtNum(h.target[0])} × ` : ''}{h.target[2] != null ? `${h.target[1]} + ${h.target[2]}` : h.target[1]}
+                      <td className="num">{h.sets.map(s => `${s.weightKg != null ? `${fmtNum(s.weightKg)} × ` : ''}${s.reps == null && s.repsAlt == null ? (s.durationSec ? `${s.durationSec} s` : '–') : fmtRepsAlt(s.reps, s.repsAlt)}`).join(' / ')}</td>
+                      <td className="num">{h.goals ? <>{h.goals.map(t => `${t[0] != null ? `${fmtNum(t[0])} × ` : ''}${t[2] != null ? `${t[1]} + ${t[2]}` : t[1]}`).join(' / ')}
                         {h.out && <span className={`pill out-${h.out}`}>{{ beat: 'przebity', hit: 'trafiony', miss: 'nietrafiony' }[h.out]}</span>}</> : <span className="muted">–</span>}</td>
                       <td className="r num"><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                         <i className="meter" style={{ width: 50, ['--w' as any]: `${(h.est / maxEst) * 100}%` }} />{h.est ? fmtNum(h.est) : '–'}</span></td>
@@ -110,7 +110,7 @@ function TrainerByPlan({ exerciseId }: { exerciseId: string }) {
     const alt = db.workouts.some(w => w.exercises.some(e => e.exerciseId === exerciseId && e.altLabels));
     return [...ctxs].map(c => {
       const pe = plans.find(p => p.id === c)?.exercises.find(e => e.exerciseId === exerciseId);
-      return { c, name: names.get(c) ?? c, tr: suggest(sessions, c, pe ? [pe.repsMin, pe.repsMax] : null, alt, 2.5, { rirOffset: cal.offset }) };
+      return { c, name: names.get(c) ?? c, tr: suggest(sessions, c, pe ? [pe.repsMin, pe.repsMax] : null, alt, 2.5, { rirOffset: cal.offset, nSets: pe?.sets }) };
     }).sort((a, b) => b.tr.ctxRated - a.tr.ctxRated);
   }, [db.workouts, db.plans, exerciseId, profile]);
   if (!rows.length) return <div className="trainer">Trener: brak treningów z tym ćwiczeniem.</div>;
@@ -118,16 +118,16 @@ function TrainerByPlan({ exerciseId }: { exerciseId: string }) {
     <div className="trainer-plans">
       <div className="muted" style={{ fontSize: 12.5 }}>Trener liczy osobno dla każdego planu (inne zmęczenie przed ćwiczeniem). Podpowiedź widać na telefonie w trakcie treningu.</div>
       <table className="mtable">
-        <thead><tr><th>Plan / trening</th><th className="r">Ocenione</th><th>Cel na następny raz</th></tr></thead>
+        <thead><tr><th>Plan / trening</th><th className="r">Ocenione</th><th>Cele na następny raz (seria 1 / 2 / 3…)</th></tr></thead>
         <tbody>{rows.map(({ c, name, tr }) => {
           const g = tr.suggestion;
           return (
             <tr key={c} style={{ cursor: 'default' }}>
               <td>{name}</td>
               <td className="r num">{Math.min(tr.ctxRated, 99)}/{TRAINER_MIN_SESSIONS}</td>
-              <td>{g ? <><b className="num">{g.kg != null ? `${fmtNum(g.kg)} kg × ` : ''}{g.repsAlt != null ? `${g.reps} + ${g.repsAlt}` : g.reps}</b>{' '}
+              <td>{g ? <><b className="num">{g.sets.map(x => `${x.kg != null ? `${fmtNum(x.kg)} × ` : ''}${x.repsAlt != null ? `${x.reps} + ${x.repsAlt}` : x.reps}`).join(' / ')}</b>{' '}
                 <span className="muted" style={{ fontSize: 12 }}>{g.level === 'plan' ? '' : g.level === 'mixed' ? '(wstępnie)' : '(szacunek z innego planu)'}</span>
-                <div className="muted" style={{ fontSize: 12 }}>{g.reason}{g.warn ? ' ' + g.warn : ''}</div></>
+                <div className="muted" style={{ fontSize: 12 }}>{g.sets.length > 1 ? g.sets.map((x, i) => `Seria ${i + 1}: ${x.why}`).join(' ') + ' ' + g.reason.slice(g.sets[0].why.length).trim() : g.reason}{g.warn ? ' ' + g.warn : ''}</div></>
                 : <span className="muted">za mało ocenionych treningów</span>}</td>
             </tr>
           );
