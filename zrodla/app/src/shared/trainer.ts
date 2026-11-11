@@ -75,6 +75,23 @@ export function weightStep(sessions: HSession[], fallback: number): number {
   return step <= 10 ? step : fallback;
 }
 
+/** Kroki ciężaru: po liście dostępnych ciężarów (gdy jest) albo o stały krok. */
+function weightMoves(step: number, list: number[] | null | undefined) {
+  const ok = !!list?.length;
+  const up = (k: number, n = 1): number => {
+    if (!ok) return k + n * step;
+    const higher = list!.filter(v => v > k + 1e-9);
+    return higher.length ? higher[Math.min(n, higher.length) - 1] : k;
+  };
+  const down = (k: number): number => {
+    if (!ok) return Math.max(step, k - step);
+    const lower = list!.filter(v => v < k - 1e-9);
+    return lower.length ? lower[lower.length - 1] : k;
+  };
+  const near = (k: number): number => (ok ? list!.reduce((a, v) => (Math.abs(v - k) < Math.abs(a - k) ? v : a), list![0]) : Math.max(step, Math.round(k / step) * step));
+  return { up, down, near };
+}
+
 export type Outcome = 'beat' | 'hit' | 'miss';
 const verdict = (r: number): Outcome => (r >= 1.03 ? 'beat' : r <= 0.98 ? 'miss' : 'hit');
 /** Wynik pojedynczej serii względem jej celu (seria bez oceny trudności: zakładamy zapas 1). */
@@ -160,7 +177,27 @@ export interface TrainerOpts {
   rirOffset?: number;
   /** Ile serii roboczych ma ćwiczenie dziś (z planu albo z treningu); domyślnie tyle, ile ostatnio */
   nSets?: number;
+  /** Dostępne ciężary (np. hantle na siłowni), rosnąco; cel ciężaru wybierany tylko z nich */
+  weights?: number[] | null;
 }
+
+/** Dostępne ciężary z zapisu „od-do/co”, np. „1-10/1, 2,5-60/2,5” albo pojedyncze wartości „12, 14”. */
+export function parseWeights(text: string): number[] {
+  const out = new Set<number>();
+  for (const part of text.split(/[;,](?![0-9])|\s+(?=\d)/).map(x => x.trim()).filter(Boolean)) {
+    const num = (v: string) => parseFloat(v.replace(',', '.'));
+    const m = part.match(/^([0-9]+(?:[.,][0-9]+)?)\s*-\s*([0-9]+(?:[.,][0-9]+)?)\s*\/\s*([0-9]+(?:[.,][0-9]+)?)$/);
+    if (m) {
+      const a = num(m[1]), b = num(m[2]), st = num(m[3]);
+      if (st > 0 && b >= a && (b - a) / st <= 500) for (let v = a; v <= b + 1e-9; v += st) out.add(Math.round(v * 100) / 100);
+    } else if (!Number.isNaN(num(part)) && num(part) > 0) out.add(Math.round(num(part) * 100) / 100);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+/** Domyślny zestaw hantli: 1–10 kg co 1 kg oraz 2,5–60 kg co 2,5 kg */
+export const DEFAULT_DUMBBELLS = '1-10/1, 2.5-60/2.5';
+/** Ćwiczenia, dla których stosujemy listę dostępnych hantli */
+export const usesDumbbells = (eq: string | null | undefined) => eq === 'hantle';
 
 const fmt = (n: number) => n.toLocaleString('pl-PL', { maximumFractionDigits: 2 });
 /** Cel trenera w postaci do zapisu przy ćwiczeniu */
@@ -206,6 +243,7 @@ export function suggest(sessions: HSession[], ctx: string, range: [number | null
 
   const ws = work(base);
   const step = weightStep(all, defaultStep);
+  const mv = weightMoves(step, opts.weights);
   // typowy spadek powtórzeń między kolejnymi seriami tym samym ciężarem (ostatnie treningi źródła), domyślnie 1
   const drops: number[] = [];
   for (const s of series.slice(0, 6)) {
@@ -272,21 +310,21 @@ export function suggest(sessions: HSession[], ctx: string, range: [number | null
       else { aim = 9; why = `Ostatnio ${was} – powtórz wynik, bez dokładania.`; }
     } else if (rpe <= 7) {
       if (r < hi!) { reps = Math.min(hi!, r + 2); change = 'reps+'; why = `Ostatnio ${was} – za lekko, +2 powtórzenia.`; }
-      else { kg = k + step; reps = lo!; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu – +${fmt(step)} kg.`; }
+      else { kg = mv.up(k); reps = lo!; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu – +${fmt(kg - k)} kg.`; }
     } else if (rpe <= 8.5) {
-      if (r >= hi!) { kg = k + step; reps = lo!; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu ${lo}–${hi} – +${fmt(step)} kg i od dołu zakresu.`; }
+      if (r >= hi!) { kg = mv.up(k); reps = lo!; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu ${lo}–${hi} – +${fmt(kg - k)} kg i od dołu zakresu.`; }
       else { reps = r + 1; change = 'reps+'; why = `Ostatnio ${was} – ten sam ciężar, +1 powtórzenie.`; }
     } else if (rpe <= 9.5) {
       aim = 9;
-      if (r >= hi!) { kg = k + step; reps = lo!; aim = 8; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu – +${fmt(step)} kg i od dołu zakresu.`; }
+      if (r >= hi!) { kg = mv.up(k); reps = lo!; aim = 8; change = 'kg+'; why = `Ostatnio ${was} na górze zakresu – +${fmt(kg - k)} kg i od dołu zakresu.`; }
       else { why = `Ostatnio ${was} – powtórz wynik; jeśli pójdzie lżej, dołóż powtórzenie.`; }
     } else if (r < loDec) {
-      kg = Math.max(step, k - step); reps = lo!; change = 'kg-'; why = `Ostatnio ${was}, wyraźnie poniżej zakresu – −${fmt(step)} kg.`;
+      kg = mv.down(k); reps = lo!; change = 'kg-'; why = `Ostatnio ${was}, wyraźnie poniżej zakresu – −${fmt(k - kg)} kg.`;
     } else { aim = 9; why = `Ostatnio ${was} – powtórz wynik zanim dołożysz.`; }
 
     // tempo dopasowane do Ciebie
     if (pace === 'fast' && !trend) {
-      if (change === 'kg+' && k != null && 2 * step <= Math.max(step, k * 0.1)) { kg = k + 2 * step; paceNote.fast = `Trzy ostatnie cele przebite – szybciej (podwójny krok ciężaru albo +1 powtórzenie więcej).`; }
+      if (change === 'kg+' && k != null && mv.up(k, 2) - k <= Math.max(mv.up(k) - k, k * 0.1)) { kg = mv.up(k, 2); paceNote.fast = `Trzy ostatnie cele przebite – szybciej (podwójny krok ciężaru albo +1 powtórzenie więcej).`; }
       else if (change === 'reps+') { reps += 1; if (!alt && k != null) reps = Math.min(reps, hi! + 1); paceNote.fast = `Trzy ostatnie cele przebite – szybciej (podwójny krok ciężaru albo +1 powtórzenie więcej).`; }
       else paceNote.fast ||= 'Trzy ostatnie cele przebite.';
     } else if (pace === 'slow') {
@@ -294,9 +332,10 @@ export function suggest(sessions: HSession[], ctx: string, range: [number | null
       else if (change === 'reps+') reps = Math.max(r, reps - 1);
       paceNote.slow = 'Ostatnie cele nie weszły – wolniej: mniejsze kroki, aż wynik będzie pewny.';
     }
+    if (change === 'kg+' && kg === k) { reps = Math.min(hi! + 2, r + 1); why = `Ostatnio ${was} – cięższego ciężaru nie ma na liście dostępnych, więc +1 powtórzenie.`; }
     if (trend && kg != null && k != null && kg > k) { kg = k; reps = r; why = `Ostatnio ${was}. Bez podnoszenia ciężaru z powodu spadku formy.`; }
     const repsAlt = alt ? Math.max(0, r + (ra ?? 0) - reps) : null; // łącznie tyle samo co ostatnio, ale więcej pełnych
-    if (kg != null && factor != null && Math.abs(factor - 1) >= 0.02) kg = Math.max(step, Math.round((kg * factor) / step) * step);
+    if (kg != null && factor != null && Math.abs(factor - 1) >= 0.02) kg = mv.near(kg * factor);
     if (kg != null) kg = Math.round(kg * 100) / 100;
     sets.push({ kg, reps, repsAlt, rpe: aim, why, was: { kg: k, reps: r, repsAlt: ra, rpe: rpeRaw, estimated: est } });
   }

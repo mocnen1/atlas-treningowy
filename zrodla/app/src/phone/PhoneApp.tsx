@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QrScanner, QrSender } from '../shared/qr';
 import { Kind, bundleToFile, fmtRepsAlt, type AltLabels, type PcBundle } from '../shared/transfer';
 import { EFFORT_LEVELS, TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
-import { outcome, type HSet, type TrainerState } from '../shared/trainer';
+import { DEFAULT_DUMBBELLS, outcome, parseWeights, type HSet, type TrainerState } from '../shared/trainer';
 import { ExerciseAnim, ExerciseThumb, imgUrl } from '../shared/ExerciseImage';
 import {
   CATALOG, EQUIPMENT, MUSCLE_GROUP, MUSCLE_GROUPS, afterSet, applyPcBundle, estSetSec, supersetOf, fmtClock, fmtDateTime, fmtDay, fmtKg, loadState, lookupExercise, muscleName, newExercise, norm,
-  exerciseHistory, fillSets, lastInContext, lastSetsInContext, setsAtTarget, withTarget, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
+  exerciseHistory, weightsFor, fillSets, lastInContext, lastSetsInContext, setsAtTarget, withTarget, phoneBundle, saveState, trainerFor, workoutContext, startWorkout, uid, updateLast, type PExercise, type PSet, type PWorkout, type PhoneState,
 } from './state';
 
 type Screen = { s: 'home' } | { s: 'workout' } | { s: 'send'; ids: string[] } | { s: 'receive' } | { s: 'settings' } | { s: 'view'; id: string };
@@ -322,6 +322,7 @@ function WorkoutScreen({ st, update, go }: P) {
           const linkedNext = !!nextEx && !!e.ss && nextEx.ss === e.ss;
           const alt = e.alt ?? null;
           const tr = trainerFor(st, w, e);
+          const wlist = weightsFor(st, e.exerciseId);
           const hasHist = exerciseHistory(st, e.exerciseId).length > 0;
           const lc = lastInContext(st, e.exerciseId, workoutContext(st, w));
           let n = 0;
@@ -385,7 +386,7 @@ function WorkoutScreen({ st, update, go }: P) {
                   return (
                     <div key={x.id} className={`p-set ${x.doneAt ? 'done' : ''} ${x.warmup ? 'warm' : ''}`}>
                       <button className="p-setn" onClick={() => setOpenSet(open ? null : x.id)} aria-label="Opcje serii">{x.warmup ? 'R' : n}<i className={x.rpe != null ? 'rated' : ''}>{x.rpe != null ? `${effortPct(x.rpe)}%` : '⋯'}</i></button>
-                      <Stepper value={x.kg} step={st.settings.kgStep} decimals onChange={v => setSet(e.id, x.id, { kg: v })} label="Ciężar" />
+                      <Stepper value={x.kg} step={st.settings.kgStep} values={wlist} decimals onChange={v => setSet(e.id, x.id, { kg: v })} label="Ciężar" />
                       <Stepper value={timed ? x.dur : x.reps} step={timed ? 5 : 1}
                         onChange={v => setSet(e.id, x.id, timed ? { dur: v } : { reps: v })} label={timed ? 'Czas (s)' : alt ? `Powtórzenia: ${alt[0]}` : 'Powtórzenia'} suffix={timed ? 's' : ''} />
                       <button className={`p-check ${x.doneAt ? 'on' : ''}`} onClick={() => tick(e, x)} aria-label={x.doneAt ? 'Cofnij odhaczenie' : 'Odhacz serię'}>✓</button>
@@ -612,7 +613,7 @@ function AltEditor({ initial, on, onSave, onOff, onCancel }: { initial: AltLabel
   );
 }
 
-function Stepper({ value, step, onChange, label, decimals, suffix }: { value: number | null; step: number; onChange: (v: number | null) => void; label: string; decimals?: boolean; suffix?: string }) {
+function Stepper({ value, step, onChange, label, decimals, suffix, values }: { value: number | null; step: number; onChange: (v: number | null) => void; label: string; decimals?: boolean; suffix?: string; values?: number[] | null }) {
   const [edit, setEdit] = useState(false);
   const [text, setText] = useState('');
   const ref = useRef<HTMLInputElement>(null);
@@ -623,7 +624,16 @@ function Stepper({ value, step, onChange, label, decimals, suffix }: { value: nu
     if (n === null || (Number.isFinite(n) && n >= 0)) onChange(n == null ? null : decimals ? Math.round(n * 100) / 100 : Math.round(n));
     setEdit(false);
   };
-  const bump = (d: number) => onChange(Math.max(0, Math.round(((value ?? 0) + d) * 100) / 100));
+  const bump = (d: number) => {
+    // lista dostępnych ciężarów (hantle): następny / poprzedni z listy
+    if (values?.length) {
+      const v = value ?? 0;
+      const next = d > 0 ? values.find(x => x > v + 1e-9) : [...values].reverse().find(x => x < v - 1e-9);
+      onChange(next ?? (d > 0 ? values[values.length - 1] : values[0]));
+      return;
+    }
+    onChange(Math.max(0, Math.round(((value ?? 0) + d) * 100) / 100));
+  };
   return (
     <div className="p-step" aria-label={label}>
       <button onClick={() => bump(-step)} aria-label={`${label} mniej`}>−</button>
@@ -823,6 +833,22 @@ function PhotoDownload() {
 }
 
 // ====================================================================== Ustawienia
+/** Dostępne hantle na siłowni: trener i przyciski − / + wybierają tylko te ciężary. */
+function DumbbellSettings({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [text, setText] = useState(value);
+  const list = parseWeights(text);
+  const ok = list.length > 0;
+  return (
+    <section className="p-sec">
+      <h2>Dostępne hantle</h2>
+      <p className="p-note">Trener podpowiada i przyciski − / + przy ćwiczeniach z hantlami przeskakują tylko po tych ciężarach (np. 37,5 → 40 zamiast 39). Zapis: od-do/co, kilka zakresów po przecinku, np. „1-10/1, 2.5-60/2.5”; można też dopisać pojedyncze ciężary.</p>
+      <input className="p-search" value={text} onChange={e => setText(e.target.value)} onBlur={() => { if (ok) onChange(text.trim()); }} aria-label="Dostępne hantle" />
+      <p className="p-note" style={ok ? undefined : { color: 'var(--hot)' }}>{ok ? `${list.length} ciężarów: ${list.map(v => fmtKg(v)).join(', ')} kg` : 'Nie rozpoznano żadnego ciężaru – zapis bez zmian.'}</p>
+      {text.trim() !== DEFAULT_DUMBBELLS && <button className="p-btn sm" onClick={() => { setText(DEFAULT_DUMBBELLS); onChange(DEFAULT_DUMBBELLS); }}>Przywróć: 1–10 co 1 kg i 2,5–60 co 2,5 kg</button>}
+    </section>
+  );
+}
+
 function SettingsScreen({ st, update, go }: P) {
   const s = st.settings;
   const set = (patch: Partial<typeof s>) => update(x => ({ ...x, settings: { ...x.settings, ...patch } }));
@@ -834,6 +860,7 @@ function SettingsScreen({ st, update, go }: P) {
           <h2>Krok ciężaru (przyciski − / +)</h2>
           <div className="p-chips">{[0.5, 1, 1.25, 2.5, 5].map(v => <button key={v} className={`p-chip big ${s.kgStep === v ? 'on' : ''}`} onClick={() => set({ kgStep: v })}>{fmtKg(v)} kg</button>)}</div>
         </section>
+        <DumbbellSettings value={s.dumbbells ?? DEFAULT_DUMBBELLS} onChange={v => set({ dumbbells: v })} />
         <section className="p-sec">
           <h2>Domyślna przerwa</h2>
           <p className="p-note">Gdy plan nie podaje przerwy dla ćwiczenia.</p>

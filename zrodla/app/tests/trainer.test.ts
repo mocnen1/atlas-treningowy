@@ -219,3 +219,23 @@ test('telefon: serie startują seria po serii, cele dla każdej serii idą do ko
   e.sets[0].doneAt = Date.now(); wk.endedAt = Date.now();
   assert.deepEqual(toTransfer(wk).exercises[0].ts, e.tgts);
 });
+
+test('dostępne hantle: cel ciężaru tylko z listy (1–10 co 1, 2,5–60 co 2,5)', async () => {
+  const { parseWeights, DEFAULT_DUMBBELLS } = await import('../src/shared/trainer');
+  const db = parseWeights(DEFAULT_DUMBBELLS);
+  assert.deepEqual(db.slice(0, 13), [1, 2, 2.5, 3, 4, 5, 6, 7, 7.5, 8, 9, 10, 12.5]);
+  assert.equal(db[db.length - 1], 60);
+  assert.deepEqual(parseWeights('2,5-10/2,5; 11, 13'), [2.5, 5, 7.5, 10, 11, 13]);
+  const top = (kg: number, reps: number, rpe: number) => [S('2026-10-01', 'a', [w(kg, reps, rpe)]), S('2026-10-08', 'a', [w(kg, reps, rpe)]), S('2026-10-15', 'a', [w(kg, reps, rpe)])];
+  const g = (h: HSession[], weights?: number[]) => suggest(h, 'a', [8, 12], false, 2.5, { weights }).suggestion!;
+  // bez listy krok z historii mógłby dać np. 39 kg; z listą: następny dostępny
+  assert.equal(g(top(37.5, 12, 8), db).kg, 40);
+  assert.equal(g(top(9, 12, 8), db).kg, 10);
+  assert.equal(g(top(10, 12, 8), db).kg, 12.5);
+  assert.equal(g(top(40, 6, 10), db).kg, 37.5, 'upadek poniżej zakresu: poprzedni dostępny');
+  const h = [S('2026-10-01', 'a', [w(36, 12, 8)]), S('2026-10-08', 'a', [w(37, 12, 8)]), S('2026-10-15', 'a', [w(37.5, 12, 8)])];
+  assert.equal(g(h).kg, 38, 'bez listy: krok 0,5 z historii');
+  assert.equal(g(h, db).kg, 40, 'z listą: 40 zamiast 38');
+  const max = g(top(60, 12, 8), db);
+  assert.deepEqual([max.kg, max.reps], [60, 13], 'najcięższe hantle: zamiast ciężaru +1 powtórzenie');
+});

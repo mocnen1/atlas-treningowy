@@ -1,7 +1,7 @@
 // Stan aplikacji na telefonie. Trzymany w localStorage (zapis po każdej zmianie).
 import catalogJson from './catalog.json';
 import musclesJson from '../data/muscles.json';
-import { calibrateRir, contextKey, suggest, toTarget, toTargets, type HSession, type HSet, type HTarget, type TrainerState } from '../shared/trainer';
+import { DEFAULT_DUMBBELLS, calibrateRir, contextKey, parseWeights, suggest, usesDumbbells, toTarget, toTargets, type HSession, type HSet, type HTarget, type TrainerState } from '../shared/trainer';
 import { localDate, localTime, setScore, unpackHistory, type AltLabels, type PcBundle, type PhoneBundle, type TransferCustom, type TransferLast, type TransferPlan, type TransferWorkout } from '../shared/transfer';
 
 export interface CatalogItem { id: string; name: string; nameEn: string; eq: string; vol: boolean; top: string | null; verified: boolean; img: boolean; custom?: boolean }
@@ -34,7 +34,11 @@ export interface PExercise {
 export interface PWorkout { id: string; name: string; planId: string | null; startedAt: number; endedAt: number | null; notes: string; exercises: PExercise[]; sentAt: number | null }
 /** Przerwa po serii. `next` = przejście w superserii do kolejnego ćwiczenia (bez odliczania i sygnału). */
 export interface Rest { setId: string; from: number; target: number; next?: string | null }
-export interface Settings { kgStep: number; defaultRest: number; sound: boolean }
+export interface Settings {
+  kgStep: number; defaultRest: number; sound: boolean;
+  /** Dostępne hantle, zapis „od-do/co” (np. „1-10/1, 2.5-60/2.5”); brak = domyślny zestaw */
+  dumbbells?: string;
+}
 
 export interface PhoneState {
   v: 1;
@@ -290,7 +294,14 @@ export function exerciseHistory(s: PhoneState, exerciseId: string): HSession[] {
 export function trainerFor(s: PhoneState, w: Pick<PWorkout, 'planId' | 'name'>, e: PExercise): TrainerState {
   const range: [number | null, number | null] | null = e.repsMin != null || e.repsMax != null ? [e.repsMin, e.repsMax] : null;
   const nSets = e.sets.filter(z => !z.warmup).length || undefined;
-  return suggest(exerciseHistory(s, e.exerciseId), workoutContext(s, w), range, !!e.alt, s.settings.kgStep, { rirOffset: rirCalibration(s).offset, nSets });
+  return suggest(exerciseHistory(s, e.exerciseId), workoutContext(s, w), range, !!e.alt, s.settings.kgStep, { rirOffset: rirCalibration(s).offset, nSets, weights: weightsFor(s, e.exerciseId) });
+}
+
+/** Dostępne ciężary dla ćwiczenia (na razie hantle); null = bez ograniczeń (krok z historii). */
+export function weightsFor(s: PhoneState, exerciseId: string): number[] | null {
+  if (!usesDumbbells(lookupExercise(s, exerciseId)?.eq)) return null;
+  const l = parseWeights(s.settings.dumbbells ?? DEFAULT_DUMBBELLS);
+  return l.length ? l : null;
 }
 
 /** Korekta skali trudności z całej historii (wszystkie ćwiczenia); liczona raz na stan historii. */

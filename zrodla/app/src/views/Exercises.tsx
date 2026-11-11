@@ -3,7 +3,7 @@ import { useStore } from '../store/store';
 import { allReps, e1rm, isWorkingSet, sessionEffort } from '../lib/stats';
 import { fmtRepsAlt, setScore } from '../shared/transfer';
 import { TRAINER_MIN_SESSIONS, effortPct } from '../shared/effort';
-import { calibrateRir, outcome, suggest, type HSet } from '../shared/trainer';
+import { DEFAULT_DUMBBELLS, calibrateRir, outcome, parseWeights, suggest, usesDumbbells, type HSet } from '../shared/trainer';
 import { sessionsByExercise } from '../lib/pcBundle';
 import { ExerciseFilters, ExerciseList, MuscleBars, emptyFilter, fmtDate, fmtNum, useFilteredExercises } from '../ui/common';
 import { ExerciseEditor } from './ExerciseEditor';
@@ -97,7 +97,8 @@ export function ExercisesView() {
 
 /** Trener wg planów: dla każdego planu (kontekstu), w którym robiono ćwiczenie – liczba ocenionych treningów i cel na następny raz. */
 function TrainerByPlan({ exerciseId }: { exerciseId: string }) {
-  const { db, profile } = useStore();
+  const { db, profile, lookup } = useStore();
+  const weights = usesDumbbells(lookup(exerciseId)?.equipmentPl) ? parseWeights(DEFAULT_DUMBBELLS) : null;
   const plans = db.plans.filter(p => p.profileId === profile!.id);
   const rows = useMemo(() => {
     const all = sessionsByExercise(db, profile!.id);
@@ -110,7 +111,7 @@ function TrainerByPlan({ exerciseId }: { exerciseId: string }) {
     const alt = db.workouts.some(w => w.exercises.some(e => e.exerciseId === exerciseId && e.altLabels));
     return [...ctxs].map(c => {
       const pe = plans.find(p => p.id === c)?.exercises.find(e => e.exerciseId === exerciseId);
-      return { c, name: names.get(c) ?? c, tr: suggest(sessions, c, pe ? [pe.repsMin, pe.repsMax] : null, alt, 2.5, { rirOffset: cal.offset, nSets: pe?.sets }) };
+      return { c, name: names.get(c) ?? c, tr: suggest(sessions, c, pe ? [pe.repsMin, pe.repsMax] : null, alt, 2.5, { rirOffset: cal.offset, nSets: pe?.sets, weights }) };
     }).sort((a, b) => b.tr.ctxRated - a.tr.ctxRated);
   }, [db.workouts, db.plans, exerciseId, profile]);
   if (!rows.length) return <div className="trainer">Trener: brak treningów z tym ćwiczeniem.</div>;
